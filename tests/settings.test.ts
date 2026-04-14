@@ -3,7 +3,6 @@ import { DEFAULT_SETTINGS, mergeSettings, LlmTasksSettings } from "../src/settin
 
 describe("DEFAULT_SETTINGS", () => {
     it("has all expected keys with correct default values", () => {
-        expect(DEFAULT_SETTINGS.logFolder).toBe("llmlogs");
         expect(DEFAULT_SETTINGS.pollInterval).toBe(5);
         expect(DEFAULT_SETTINGS.maxConcurrent).toBe(5);
         expect(DEFAULT_SETTINGS.notifyOnCompletion).toBe(true);
@@ -18,12 +17,15 @@ describe("DEFAULT_SETTINGS", () => {
         expect(DEFAULT_SETTINGS.pendingMarker).toBe("⏳");
         expect(DEFAULT_SETTINGS.doneMarker).toBe("✅");
         expect(DEFAULT_SETTINGS.failedMarker).toBe("❌");
-        expect(DEFAULT_SETTINGS.useWikilinks).toBe(true);
+        expect(DEFAULT_SETTINGS.tmuxCommand).toBe("tmux");
+        expect(DEFAULT_SETTINGS.openTerminalCommand).toContain("osascript");
+        expect(DEFAULT_SETTINGS.openTerminalCommand).toContain("{cmd}");
+        expect(DEFAULT_SETTINGS.shellPath).toBe("/bin/zsh");
+        expect(DEFAULT_SETTINGS.extraPath).toBe("/opt/homebrew/bin:/usr/local/bin");
     });
 
     it("contains exactly the expected keys", () => {
         const expectedKeys = [
-            "logFolder",
             "pollInterval",
             "maxConcurrent",
             "notifyOnCompletion",
@@ -38,7 +40,10 @@ describe("DEFAULT_SETTINGS", () => {
             "pendingMarker",
             "doneMarker",
             "failedMarker",
-            "useWikilinks",
+            "tmuxCommand",
+            "openTerminalCommand",
+            "shellPath",
+            "extraPath",
         ];
         expect(Object.keys(DEFAULT_SETTINGS).sort()).toEqual(expectedKeys.sort());
     });
@@ -52,27 +57,15 @@ describe("mergeSettings", () => {
 
     it("keeps overrides and fills rest with defaults", () => {
         const result = mergeSettings({
-            logFolder: "custom-logs",
             pollInterval: 10,
-            useWikilinks: false,
+            tmuxCommand: "/opt/homebrew/bin/tmux",
+            shellPath: "/bin/bash",
         });
-        expect(result.logFolder).toBe("custom-logs");
         expect(result.pollInterval).toBe(10);
-        expect(result.useWikilinks).toBe(false);
-        // rest should be defaults
+        expect(result.tmuxCommand).toBe("/opt/homebrew/bin/tmux");
+        expect(result.shellPath).toBe("/bin/bash");
         expect(result.maxConcurrent).toBe(5);
         expect(result.notifyOnCompletion).toBe(true);
-        expect(result.includeNoteContext).toBe(true);
-        expect(result.contextLimit).toBe(10000);
-        expect(result.promptFile).toBe("llm-tasks-prompt.md");
-        expect(result.agentType).toBe("pi");
-        expect(result.agentCommand).toBe("");
-        expect(result.extraArgs).toBe("");
-        expect(result.workingDirectory).toBe("vault");
-        expect(result.customWorkingDirectory).toBe("");
-        expect(result.pendingMarker).toBe("⏳");
-        expect(result.doneMarker).toBe("✅");
-        expect(result.failedMarker).toBe("❌");
     });
 
     it("preserves agentCommand and extraArgs overrides", () => {
@@ -82,16 +75,30 @@ describe("mergeSettings", () => {
         });
         expect(result.agentCommand).toBe("/usr/local/bin/pi");
         expect(result.extraArgs).toBe("--model opus --provider amazon-bedrock");
-        // Other settings should be defaults
-        expect(result.logFolder).toBe("llmlogs");
     });
 
-    it("does not lose extraArgs when other fields are overridden", () => {
+    it("strips stale keys like logFolder and useWikilinks", () => {
         const result = mergeSettings({
-            logFolder: "my-logs",
-            extraArgs: "--model sonnet",
+            logFolder: "llmlogs",
+            useWikilinks: true,
+            pollInterval: 10,
+        } as any);
+        expect(result.pollInterval).toBe(10);
+        expect((result as any).logFolder).toBeUndefined();
+        expect((result as any).useWikilinks).toBeUndefined();
+    });
+
+    it("migrates old openTerminalCommand default to new one with activate", () => {
+        const result = mergeSettings({
+            openTerminalCommand: `osascript -e 'tell application "Terminal" to do script "{cmd}"'`,
         });
-        expect(result.logFolder).toBe("my-logs");
-        expect(result.extraArgs).toBe("--model sonnet");
+        expect(result.openTerminalCommand).toContain("activate");
+        expect(result.openTerminalCommand).toBe(DEFAULT_SETTINGS.openTerminalCommand);
+    });
+
+    it("preserves custom openTerminalCommand", () => {
+        const custom = `osascript -e 'tell application "iTerm" to do script "{cmd}"'`;
+        const result = mergeSettings({ openTerminalCommand: custom });
+        expect(result.openTerminalCommand).toBe(custom);
     });
 });

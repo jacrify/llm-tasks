@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { execSync } from 'node:child_process';
 import { TaskManager, TaskManagerDeps } from '../src/task-manager';
 import { DEFAULT_SETTINGS, LlmTasksSettings } from '../src/settings';
 import { registerAgent } from '../src/agents/registry';
@@ -12,17 +13,10 @@ const testAdapter: AgentAdapter = {
     id: 'test',
     name: 'Test',
     defaultCommand: '/bin/sh',
-    buildArgs({ renderedPrompt }) {
-        return ['-c', renderedPrompt];
+    buildArgs({ task }) {
+        return ['-c', task];
     },
     isSuccess: (code) => code === 0,
-    extractCost: async () => null,
-    async peek(logFile, lines = 20) {
-        if (!fs.existsSync(logFile)) return '(no output yet)';
-        const content = fs.readFileSync(logFile, 'utf-8');
-        return content.split('\n').slice(-lines).join('\n');
-    },
-    resumeCommand: () => 'echo resume',
 };
 
 // Register (idempotent since registry uses Map)
@@ -36,14 +30,10 @@ let vaultFiles: Map<string, string>;
 function createRealDeps(): TaskManagerDeps {
     return {
         async readFile(filePath: string): Promise<string | null> {
-            const content = vaultFiles.get(filePath);
-            return content ?? null;
+            return vaultFiles.get(filePath) ?? null;
         },
         async writeFile(filePath: string, content: string): Promise<void> {
             vaultFiles.set(filePath, content);
-        },
-        async ensureFolder(_path: string): Promise<void> {
-            // no-op for tests
         },
         getVaultPath(): string {
             return vaultDir;
@@ -67,102 +57,111 @@ function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function tmuxSessionExists(session: string): boolean {
+    try {
+        execSync(`tmux has-session -t '${session}'`, { stdio: 'pipe' });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function killTmuxSession(session: string): void {
+    try {
+        execSync(`tmux kill-session -t '${session}'`, { stdio: 'pipe' });
+    } catch { /* already dead */ }
+}
+
 describe('TaskManager Integration', () => {
+    let createdSessions: string[] = [];
+
     beforeEach(() => {
         testDir = path.join(os.tmpdir(), `llm-tasks-test-${Date.now()}`);
         vaultDir = path.join(testDir, 'vault');
         fs.mkdirSync(vaultDir, { recursive: true });
         savedData = {};
         vaultFiles = new Map();
+        createdSessions = [];
     });
 
     afterEach(() => {
+        // Clean up tmux sessions
+        for (const s of createdSessions) {
+            killTmuxSession(s);
+        }
         try {
             fs.rmSync(testDir, { recursive: true, force: true });
-        } catch {
-            // best effort
-        }
+        } catch { /* best effort */ }
     });
 
-    it('dispatch spawns "echo hello" and log file contains hello', async () => {
+    it('dispatch creates a tmux session running the command', async () => {
         const deps = createRealDeps();
-        // Provide a minimal prompt template so the rendered prompt is just the task
-        vaultFiles.set('llm-tasks-prompt.md', '{{task}}');
         const manager = new TaskManager(deps, createSettings());
 
-        const record = await manager.dispatch('echo hello', 'note.md', 0, 'content');
+        const record = await manager.dispatch('echo hello && sleep 5', 'note.md', 0, 'content');
+        createdSessions.push(record.tmuxSession);
 
-        expect(record.pid).toBeGreaterThan(0);
-        expect(record.logFile).toBeTruthy();
-
-        // Wait for the echo to finish and log file to be written
-        await sleep(1000);
-
-        const logContent = fs.readFileSync(record.logFile, 'utf-8');
-        expect(logContent).toContain('hello');
+        expect(record.tmuxSession).toMatch(/^llm-/);
+        expect(tmuxSessionExists(record.tmuxSession)).toBe(true);
 
         await manager.cleanup();
     });
 
-    it('poll loop detects process exit', async () => {
+    it('poll loop detects tmux session completion', async () => {
         const deps = createRealDeps();
-        vaultFiles.set('llm-tasks-prompt.md', '{{task}}');
+        const sourceContent = 'echo done <!-- llm:placeholder -->';
+        vaultFiles.set('note.md', sourceContent);
         const settings = createSettings();
         const manager = new TaskManager(deps, settings);
 
-        const record = await manager.dispatch('echo done', 'note.md', 0, 'content');
+        const record = await manager.dispatch('echo done', 'note.md', 0, sourceContent);
+        createdSessions.push(record.tmuxSession);
         expect(manager.getActiveTaskCount()).toBe(1);
 
-        // Start polling with short interval
-        manager.startPollingMs(200);
+        // Rewrite source with actual session ID
+        const taskLine = `- ${settings.pendingMarker} echo done <!-- llm:${record.tmuxSession} -->`;
+        vaultFiles.set('note.md', taskLine);
 
-        // Wait for echo to finish and poll to detect it
-        await sleep(2000);
+        manager.startPollingMs(200);
+        await sleep(3000);
 
         expect(manager.getActiveTaskCount()).toBe(0);
 
-        // Check that log note was updated
-        const logNoteContent = vaultFiles.get(`${record.logNote}.md`);
-        expect(logNoteContent).toBeDefined();
-        expect(logNoteContent).toContain('done');
+        // Source note should be updated with done marker
+        const finalSource = vaultFiles.get('note.md');
+        expect(finalSource).toContain(settings.doneMarker);
 
         manager.stopPolling();
         await manager.cleanup();
     });
 
-    it('cancel sends SIGTERM to a "sleep 60" process', async () => {
+    it('cancel kills the tmux session', async () => {
         const deps = createRealDeps();
-        vaultFiles.set('llm-tasks-prompt.md', '{{task}}');
         const manager = new TaskManager(deps, createSettings());
 
         const record = await manager.dispatch('sleep 60', 'note.md', 0, 'content');
+        createdSessions.push(record.tmuxSession);
         expect(manager.getActiveTaskCount()).toBe(1);
+        expect(tmuxSessionExists(record.tmuxSession)).toBe(true);
 
-        // Verify process is alive
-        expect(() => process.kill(record.pid, 0)).not.toThrow();
-
-        // Cancel
         await manager.cancel(record.id);
         expect(manager.getActiveTaskCount()).toBe(0);
 
-        // Give a moment for the process to die
         await sleep(500);
-
-        // Process should be dead
-        expect(() => process.kill(record.pid, 0)).toThrow();
+        expect(tmuxSessionExists(record.tmuxSession)).toBe(false);
 
         await manager.cleanup();
     });
 
-    it('cancelAll kills multiple running processes', async () => {
+    it('cancelAll kills multiple tmux sessions', async () => {
         const deps = createRealDeps();
-        vaultFiles.set('llm-tasks-prompt.md', '{{task}}');
         const settings = createSettings({ maxConcurrent: 5 });
         const manager = new TaskManager(deps, settings);
 
         const r1 = await manager.dispatch('sleep 60', 'note.md', 0, 'content');
         const r2 = await manager.dispatch('sleep 61', 'note.md', 1, 'content');
         const r3 = await manager.dispatch('sleep 62', 'note.md', 2, 'content');
+        createdSessions.push(r1.tmuxSession, r2.tmuxSession, r3.tmuxSession);
 
         expect(manager.getActiveTaskCount()).toBe(3);
 
@@ -170,60 +169,51 @@ describe('TaskManager Integration', () => {
         expect(manager.getActiveTaskCount()).toBe(0);
 
         await sleep(500);
-
-        // All processes should be dead
-        for (const pid of [r1.pid, r2.pid, r3.pid]) {
-            expect(() => process.kill(pid, 0)).toThrow();
+        for (const r of [r1, r2, r3]) {
+            expect(tmuxSessionExists(r.tmuxSession)).toBe(false);
         }
 
         await manager.cleanup();
     });
 
-    it('detectStaleTasks marks a non-existent PID as failed', async () => {
+    it('failed command gets failed marker', async () => {
         const deps = createRealDeps();
-        const manager = new TaskManager(deps, createSettings());
+        const settings = createSettings({ notifyOnCompletion: true });
+        const manager = new TaskManager(deps, settings);
 
-        // Create a fake log note in vault files
-        const fakeLogNote = 'llmlogs/fake-task';
-        vaultFiles.set(`${fakeLogNote}.md`, `---
-type: llm-task
-status: running
-source: "[[note]]"
-task: 'fake task'
-agent: test
-started: 2026-04-14T10:00:00
-pid: 999999
----
+        const record = await manager.dispatch('exit 1', 'note.md', 0, 'content');
+        createdSessions.push(record.tmuxSession);
 
-# ⏳ fake task
+        const taskLine = `- ${settings.pendingMarker} exit 1 <!-- llm:${record.tmuxSession} -->`;
+        vaultFiles.set('note.md', taskLine);
 
-**Source:** [[note]]
-**Status:** ⏳ Running
-**Agent:** test
-**Started:** 2026-04-14 10:00:00
+        manager.startPollingMs(200);
+        await sleep(3000);
 
-## Resume
+        expect(manager.getActiveTaskCount()).toBe(0);
 
-\`\`\`bash
-echo resume
-\`\`\`
+        const finalSource = vaultFiles.get('note.md');
+        expect(finalSource).toContain(settings.failedMarker);
 
-## Output
+        manager.stopPolling();
+        await manager.cleanup();
+    });
 
-_Waiting for completion..._
-`);
+    it('detectStaleTasks marks missing sessions as failed', async () => {
+        const deps = createRealDeps();
+        const settings = createSettings();
+        const manager = new TaskManager(deps, settings);
 
-        // Put a stale task record in saved data with a PID that doesn't exist
+        const taskLine = `- ${settings.pendingMarker} fake task <!-- llm:llm-nonexistent-session -->`;
+        vaultFiles.set('note.md', taskLine);
+
         savedData = {
             activeTasks: [{
                 id: 'fake-task',
-                pid: 999999, // non-existent PID
+                tmuxSession: 'llm-nonexistent-session',
                 sourceFile: 'note.md',
                 sourceLine: 0,
                 taskText: 'fake task',
-                logNote: fakeLogNote,
-                logFile: '/tmp/llm-tasks/fake.log',
-                sessionFile: '/tmp/llm-tasks/sessions/fake',
                 agentId: 'test',
                 started: '2026-04-14T10:00:00',
             }],
@@ -231,15 +221,11 @@ _Waiting for completion..._
 
         await manager.detectStaleTasks();
 
-        // Should be marked as failed (no active tasks)
         expect(manager.getActiveTaskCount()).toBe(0);
 
-        // Log note should be updated
-        const updatedLog = vaultFiles.get(`${fakeLogNote}.md`);
-        expect(updatedLog).toContain('failed');
-        expect(updatedLog).toContain('stale PID');
+        const finalSource = vaultFiles.get('note.md');
+        expect(finalSource).toContain(settings.failedMarker);
 
-        // Notification should have been sent
         expect(deps.notify).toHaveBeenCalledWith(expect.stringContaining('Stale task'));
 
         await manager.cleanup();

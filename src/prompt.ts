@@ -12,15 +12,10 @@ export const DEFAULT_PROMPT_TEMPLATE = `You are an AI assistant working inside a
 
 ## Rules
 
-- Do NOT modify any checkbox lines (lines starting with '- [') in the source note. Task status is managed by the llm-tasks plugin.
-- Do NOT create any lines starting with '- [ ]' (checkbox syntax) in ANY file. Checkboxes trigger automated task execution.
-- If you need a list, use plain '- ' items, not checkboxes.
+- Complete the task directly. Do not ask clarifying questions — make reasonable assumptions and proceed.
+- Do NOT modify any lines matching \`- ⏳\`, \`- ✅\`, \`- ❌\`, or \`<!-- llm:\` in the source note. Task status is managed by the llm-tasks plugin.
 - Work within the vault directory unless the task says otherwise.
 - Be concise.
-
-## Vault Context
-
-This vault is a personal knowledge base and project management system. Notes use YAML frontmatter with fields like \`type\`, \`areas\`, \`parent\`, \`status\`.
 
 ## Task
 
@@ -35,8 +30,13 @@ export function truncateContext(context: string, limit: number): string {
     return context.slice(0, limit);
 }
 
-export function renderPrompt(template: string | null | undefined, vars: PromptVariables): string {
-    const t = template ?? DEFAULT_PROMPT_TEMPLATE;
+export function renderPrompt(customTemplate: string | null | undefined, vars: PromptVariables): string {
+    // Always start with the built-in default prompt.
+    // If a custom prompt file exists, append it.
+    let t = DEFAULT_PROMPT_TEMPLATE;
+    if (customTemplate) {
+        t += '\n\n## Additional Instructions\n\n' + customTemplate;
+    }
     const truncatedContext = truncateContext(vars.noteContext, vars.contextLimit);
 
     const replacements: Record<string, string> = {

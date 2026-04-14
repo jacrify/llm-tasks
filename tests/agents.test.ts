@@ -5,7 +5,7 @@ import { getAgent, listAgents } from '../src/agents/registry';
 
 const baseParams = {
     renderedPrompt: 'Do the thing',
-    sessionFile: '/tmp/llm-tasks/sessions/test',
+    task: 'Do the thing',
     extraArgs: [] as string[],
 };
 
@@ -16,7 +16,7 @@ describe('pi adapter', () => {
 
     it('buildArgs returns correct args with no extra args', () => {
         const result = piAdapter.buildArgs(baseParams);
-        expect(result).toEqual(['-p', '--session', '/tmp/llm-tasks/sessions/test', 'Do the thing']);
+        expect(result).toEqual(['-p', 'Do the thing']);
     });
 
     it('buildArgs includes extra args when provided', () => {
@@ -26,25 +26,6 @@ describe('pi adapter', () => {
         });
         expect(result).toContain('--model');
         expect(result).toContain('sonnet');
-    });
-
-    it('buildArgs includes --provider in extra args', () => {
-        const result = piAdapter.buildArgs({
-            ...baseParams,
-            extraArgs: ['--provider', 'anthropic'],
-        });
-        expect(result).toContain('--provider');
-        expect(result).toContain('anthropic');
-    });
-
-    it('buildArgs passes through multiple extra args', () => {
-        const result = piAdapter.buildArgs({
-            ...baseParams,
-            extraArgs: ['--verbose', '--timeout', '30'],
-        });
-        expect(result).toContain('--verbose');
-        expect(result).toContain('--timeout');
-        expect(result).toContain('30');
     });
 
     it('isSuccess returns true for exit code 0', () => {
@@ -61,14 +42,9 @@ describe('claude-code adapter', () => {
         expect(claudeCodeAdapter.defaultCommand).toBe('claude');
     });
 
-    it('buildArgs returns correct args with session and json output', () => {
+    it('buildArgs returns correct args', () => {
         const result = claudeCodeAdapter.buildArgs(baseParams);
-        expect(result[0]).toBe('-p');
-        expect(result[1]).toBe('--output-format');
-        expect(result[2]).toBe('json');
-        expect(result[3]).toBe('--session-id');
-        expect(typeof result[4]).toBe('string'); // UUID
-        expect(result[result.length - 1]).toBe('Do the thing');
+        expect(result).toEqual(['-p', 'Do the thing']);
     });
 
     it('buildArgs includes extra args when set', () => {

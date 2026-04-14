@@ -15,49 +15,61 @@ function makeVars(overrides: Partial<PromptVariables> = {}): PromptVariables {
 }
 
 describe('renderPrompt', () => {
-    it('replaces all 6 known placeholders', () => {
-        const template = '{{task}} | {{sourceNoteName}} | {{noteContext}} | {{vaultPath}} | {{timestamp}} | {{agentId}}';
-        const vars = makeVars();
-        const result = renderPrompt(template, vars);
-        expect(result).toBe('Refactor the module | Project Notes | Some context about the project | /Users/test/vault | 2026-04-14T14:30:00Z | pi');
-    });
-
-    it('leaves unknown placeholders like {{foo}} as-is', () => {
-        const template = '{{task}} and {{foo}} and {{bar}}';
-        const result = renderPrompt(template, makeVars());
-        expect(result).toBe('Refactor the module and {{foo}} and {{bar}}');
-    });
-
-    it('falls back to DEFAULT_PROMPT_TEMPLATE when template is null', () => {
+    it('uses default template when custom is null', () => {
         const result = renderPrompt(null, makeVars());
         expect(result).toContain('Refactor the module');
         expect(result).toContain('/Users/test/vault');
         expect(result).toContain('Project Notes');
+        expect(result).toContain('Complete the task directly');
         expect(result).not.toContain('{{task}}');
         expect(result).not.toContain('{{vaultPath}}');
     });
 
-    it('falls back to DEFAULT_PROMPT_TEMPLATE when template is undefined', () => {
+    it('uses default template when custom is undefined', () => {
         const result = renderPrompt(undefined, makeVars());
         expect(result).toContain('Refactor the module');
+        expect(result).toContain('Complete the task directly');
+    });
+
+    it('appends custom template to default when custom is provided', () => {
+        const custom = 'Always respond in French. Use {{task}} as reference.';
+        const result = renderPrompt(custom, makeVars());
+        // Has the default
+        expect(result).toContain('Complete the task directly');
+        expect(result).toContain('Refactor the module');
+        // Has the custom appended
+        expect(result).toContain('Additional Instructions');
+        expect(result).toContain('Always respond in French');
+        // Placeholders in custom are also replaced
+        expect(result).not.toContain('{{task}}');
+    });
+
+    it('replaces all placeholders in both default and custom', () => {
+        const custom = 'Agent: {{agentId}}, Time: {{timestamp}}';
+        const result = renderPrompt(custom, makeVars());
+        expect(result).toContain('Agent: pi');
+        expect(result).toContain('Time: 2026-04-14T14:30:00Z');
+        expect(result).not.toContain('{{agentId}}');
+        expect(result).not.toContain('{{timestamp}}');
     });
 
     it('truncates noteContext to contextLimit characters', () => {
         const longContext = 'A'.repeat(500);
         const vars = makeVars({ noteContext: longContext, contextLimit: 100 });
-        const result = renderPrompt('Context: {{noteContext}}', vars);
-        expect(result).toBe('Context: ' + 'A'.repeat(100));
+        const result = renderPrompt(null, vars);
+        // The context in the rendered output should be truncated
+        expect(result).not.toContain('A'.repeat(500));
+        expect(result).toContain('A'.repeat(100));
     });
 
     it('handles empty task string', () => {
-        const result = renderPrompt('Task: {{task}}', makeVars({ task: '' }));
-        expect(result).toBe('Task: ');
+        const result = renderPrompt(null, makeVars({ task: '' }));
+        expect(result).toContain('## Task\n\n\n');
     });
 
-    it('returns template unchanged when it has no placeholders', () => {
-        const template = 'Just a plain template with no placeholders.';
-        const result = renderPrompt(template, makeVars());
-        expect(result).toBe(template);
+    it('does not include Additional Instructions section when custom is null', () => {
+        const result = renderPrompt(null, makeVars());
+        expect(result).not.toContain('Additional Instructions');
     });
 });
 
@@ -82,5 +94,10 @@ describe('DEFAULT_PROMPT_TEMPLATE', () => {
         expect(DEFAULT_PROMPT_TEMPLATE).toContain('{{sourceNoteName}}');
         expect(DEFAULT_PROMPT_TEMPLATE).toContain('{{noteContext}}');
         expect(DEFAULT_PROMPT_TEMPLATE).toContain('{{vaultPath}}');
+    });
+
+    it('tells agent to not ask questions', () => {
+        expect(DEFAULT_PROMPT_TEMPLATE).toContain('Complete the task directly');
+        expect(DEFAULT_PROMPT_TEMPLATE).toContain('Do not ask clarifying questions');
     });
 });

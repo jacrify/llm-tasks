@@ -2,7 +2,6 @@ import { PluginSettingTab, App, Setting } from "obsidian";
 import { listAgents, getAgent } from "./agents/registry";
 
 export interface LlmTasksSettings {
-    logFolder: string;
     pollInterval: number;
     maxConcurrent: number;
     notifyOnCompletion: boolean;
@@ -17,11 +16,13 @@ export interface LlmTasksSettings {
     pendingMarker: string;
     doneMarker: string;
     failedMarker: string;
-    useWikilinks: boolean;
+    tmuxCommand: string;
+    openTerminalCommand: string;
+    shellPath: string;
+    extraPath: string;
 }
 
 export const DEFAULT_SETTINGS: LlmTasksSettings = {
-    logFolder: "llmlogs",
     pollInterval: 5,
     maxConcurrent: 5,
     notifyOnCompletion: true,
@@ -36,11 +37,31 @@ export const DEFAULT_SETTINGS: LlmTasksSettings = {
     pendingMarker: "⏳",
     doneMarker: "✅",
     failedMarker: "❌",
-    useWikilinks: true,
+    tmuxCommand: "tmux",
+    openTerminalCommand: `osascript -e 'tell application "Terminal"' -e 'do script "{cmd}"' -e 'activate' -e 'end tell'`,
+    shellPath: "/bin/zsh",
+    extraPath: "/opt/homebrew/bin:/usr/local/bin",
 };
 
+const OLD_OPEN_TERMINAL = `osascript -e 'tell application "Terminal" to do script "{cmd}"'`;
+
 export function mergeSettings(loaded: Partial<LlmTasksSettings>): LlmTasksSettings {
-    return { ...DEFAULT_SETTINGS, ...loaded };
+    // Filter out undefined values so they don't overwrite defaults
+    const clean: Partial<LlmTasksSettings> = {};
+    const validKeys = new Set(Object.keys(DEFAULT_SETTINGS));
+    for (const [k, v] of Object.entries(loaded)) {
+        // Drop unknown/stale keys and undefined values
+        if (v !== undefined && validKeys.has(k)) {
+            (clean as any)[k] = v;
+        }
+    }
+
+    // Migrate old openTerminalCommand default (missing 'activate')
+    if (clean.openTerminalCommand === OLD_OPEN_TERMINAL) {
+        delete clean.openTerminalCommand;
+    }
+
+    return { ...DEFAULT_SETTINGS, ...clean };
 }
 
 export class LlmTasksSettingTab extends PluginSettingTab {
@@ -63,7 +84,7 @@ export class LlmTasksSettingTab extends PluginSettingTab {
         const agents = listAgents();
         new Setting(containerEl)
             .setName("Agent type")
-            .setDesc("Determines cost extraction, session handling, and default command")
+            .setDesc("Which agent to use for task dispatch")
             .addDropdown((dropdown) => {
                 for (const agent of agents) {
                     dropdown.addOption(agent.id, agent.name);
@@ -71,7 +92,6 @@ export class LlmTasksSettingTab extends PluginSettingTab {
                 dropdown.setValue(this.plugin.settings.agentType);
                 dropdown.onChange(async (value: string) => {
                     this.plugin.settings.agentType = value;
-                    // Clear custom command so it picks up the new default
                     this.plugin.settings.agentCommand = "";
                     await this.plugin.saveSettings();
                     this.display();
@@ -82,7 +102,7 @@ export class LlmTasksSettingTab extends PluginSettingTab {
         const defaultCmd = currentAgent?.defaultCommand || "pi";
 
         new Setting(containerEl)
-            .setName("Command")
+            .setName("Agent command")
             .setDesc(`Agent binary to run. Leave blank for default: "${defaultCmd}"`)
             .addText((text) =>
                 text
@@ -136,20 +156,68 @@ export class LlmTasksSettingTab extends PluginSettingTab {
                 );
         }
 
-        // --- General ---
-        containerEl.createEl("h3", { text: "General" });
+        // --- Terminal ---
+        containerEl.createEl("h3", { text: "Terminal" });
 
         new Setting(containerEl)
-            .setName("Log folder")
-            .setDesc("Vault-relative path for log notes")
+            .setName("tmux command")
+            .setDesc("Path to tmux binary")
             .addText((text) =>
                 text
-                    .setValue(this.plugin.settings.logFolder)
+                    .setPlaceholder("tmux")
+                    .setValue(this.plugin.settings.tmuxCommand)
                     .onChange(async (value: string) => {
-                        this.plugin.settings.logFolder = value;
+                        this.plugin.settings.tmuxCommand = value;
                         await this.plugin.saveSettings();
                     })
             );
+
+        const termSetting = new Setting(containerEl)
+            .setName("Open terminal command")
+            .setDesc('Shell command to open a terminal window. Use {cmd} where the tmux attach command should go.')
+            .addTextArea((text) => {
+                text.inputEl.rows = 3;
+                text.inputEl.cols = 60;
+                text.inputEl.style.fontFamily = 'monospace';
+                text.inputEl.style.fontSize = '12px';
+                text
+                    .setPlaceholder(DEFAULT_SETTINGS.openTerminalCommand)
+                    .setValue(this.plugin.settings.openTerminalCommand)
+                    .onChange(async (value: string) => {
+                        this.plugin.settings.openTerminalCommand = value;
+                        await this.plugin.saveSettings();
+                    });
+            });
+        termSetting.settingEl.addClass('llm-tasks-wide-setting');
+
+        new Setting(containerEl)
+            .setName("Shell path")
+            .setDesc("Shell used to run tmux commands. Must support -c flag.")
+            .addText((text) =>
+                text
+                    .setPlaceholder(DEFAULT_SETTINGS.shellPath)
+                    .setValue(this.plugin.settings.shellPath)
+                    .onChange(async (value: string) => {
+                        this.plugin.settings.shellPath = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
+
+        new Setting(containerEl)
+            .setName("Extra PATH entries")
+            .setDesc("Colon-separated paths prepended to PATH when running tmux. Needed because Obsidian GUI apps have a minimal PATH.")
+            .addText((text) =>
+                text
+                    .setPlaceholder(DEFAULT_SETTINGS.extraPath)
+                    .setValue(this.plugin.settings.extraPath)
+                    .onChange(async (value: string) => {
+                        this.plugin.settings.extraPath = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
+
+        // --- General ---
+        containerEl.createEl("h3", { text: "General" });
 
         new Setting(containerEl)
             .setName("Prompt file")
@@ -229,18 +297,6 @@ export class LlmTasksSettingTab extends PluginSettingTab {
                             this.plugin.settings.contextLimit = num;
                             await this.plugin.saveSettings();
                         }
-                    })
-            );
-
-        new Setting(containerEl)
-            .setName("Use wikilinks")
-            .setDesc("Wrap dispatched tasks in [[wikilinks]]")
-            .addToggle((toggle) =>
-                toggle
-                    .setValue(this.plugin.settings.useWikilinks)
-                    .onChange(async (value: boolean) => {
-                        this.plugin.settings.useWikilinks = value;
-                        await this.plugin.saveSettings();
                     })
             );
     }

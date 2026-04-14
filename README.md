@@ -8,7 +8,7 @@ That's it. No streaming UI, no chat panels, no embedded AI. Just a line of text 
 
 ## Philosophy
 
-This plugin does as little as possible. Your agent already knows what to do. Your shell already has your API keys and model preferences configured. The plugin's job is just to:
+This plugin does as little as possible. Your agent already knows what to do, and has your API keys and model preferences configured. The plugin's job is just to:
 
 1. Take a line of text
 2. Pass it to your agent as a CLI command
