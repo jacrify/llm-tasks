@@ -166,6 +166,7 @@ describe("updateLogNoteOnComplete", () => {
             finished: "2026-04-14T14:35:00",
         });
         expect(result).toContain("**Cost:** $0.0534 · us.anthropic.claude-sonnet-4-20250514 · 9,603 in · 217 out");
+        expect(result).toContain("cost: 0.0534");
     });
 
     it("omits cost line when CostData is null", () => {
@@ -178,6 +179,7 @@ describe("updateLogNoteOnComplete", () => {
             finished: "2026-04-14T14:35:00",
         });
         expect(result).not.toContain("**Cost:**");
+        expect(result).not.toMatch(/^cost:/m);
     });
 });
 

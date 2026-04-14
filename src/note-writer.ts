@@ -115,6 +115,14 @@ export function updateLogNoteOnComplete(
     // Update frontmatter status
     result = result.replace(/^status: running$/m, `status: ${statusWord}`);
 
+    // Add cost to frontmatter if available
+    if (cost && cost.cost != null) {
+        result = result.replace(
+            /^(pid: .+)$/m,
+            `$1\ncost: ${cost.cost.toFixed(4)}`
+        );
+    }
+
     // Update heading
     result = result.replace(/^# ⏳ /m, `# ${marker} `);
 
