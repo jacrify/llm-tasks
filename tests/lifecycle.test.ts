@@ -172,21 +172,34 @@ describe('Full Lifecycle Integration', () => {
         await manager.cleanup();
     });
 
-    it('dispatch with non-existent binary fails gracefully', async () => {
+    it('dispatch with non-existent binary fails gracefully via poll', async () => {
         const deps = createDeps();
-        const settings = createSettings({ agentType: 'test-bad-binary' });
+        const settings = createSettings({ agentType: 'test-bad-binary', notifyOnCompletion: true });
         vaultFiles.set('llm-tasks-prompt.md', '{{task}}');
+        const sourceContent = 'do something';
+        vaultFiles.set('note.md', sourceContent);
 
         const manager = new TaskManager(deps, settings);
 
-        // Should reject with a clear error, not crash
-        await expect(
-            manager.dispatch('do something', 'note.md', 0, 'content')
-        ).rejects.toThrow(/not found|Failed to spawn/);
+        // Dispatch succeeds (the login shell spawns), but the command inside will fail
+        const record = await manager.dispatch('do something', 'note.md', 0, sourceContent);
+        expect(record.pid).toBeGreaterThan(0);
 
-        // No active tasks should remain
+        // Rewrite source line
+        const taskLine = formatTaskLine(record.taskText, record.logNote, settings.pendingMarker, settings.useWikilinks);
+        vaultFiles.set('note.md', taskLine);
+
+        // Poll to detect failure
+        manager.startPollingMs(200);
+        await sleep(3000);
+
+        // Task should be gone and marked as failed
         expect(manager.getActiveTaskCount()).toBe(0);
+        const logNoteContent = vaultFiles.get(`${record.logNote}.md`);
+        expect(logNoteContent).toContain('status: failed');
+        expect(notifications.some(n => n.includes('failed'))).toBe(true);
 
+        manager.stopPolling();
         await manager.cleanup();
     });
 
@@ -194,19 +207,24 @@ describe('Full Lifecycle Integration', () => {
         const deps = createDeps();
         const settings = createSettings({ agentType: 'test-bad-binary' });
         vaultFiles.set('llm-tasks-prompt.md', '{{task}}');
+        const sourceContent = 'do something';
+        vaultFiles.set('note.md', sourceContent);
 
         const manager = new TaskManager(deps, settings);
 
-        try {
-            await manager.dispatch('do something', 'note.md', 0, 'content');
-        } catch {
-            // Expected
-        }
+        const record = await manager.dispatch('do something', 'note.md', 0, sourceContent);
+        const taskLine = formatTaskLine(record.taskText, record.logNote, settings.pendingMarker, settings.useWikilinks);
+        vaultFiles.set('note.md', taskLine);
+
+        // Poll to detect failure
+        manager.startPollingMs(200);
+        await sleep(3000);
 
         // Verify no stale state
         expect(manager.getActiveTaskCount()).toBe(0);
         expect(manager.getActiveTasks()).toEqual([]);
 
+        manager.stopPolling();
         await manager.cleanup();
     });
 

@@ -1,7 +1,7 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import { spawn, execSync, ChildProcess } from 'node:child_process';
+import { spawn, ChildProcess } from 'node:child_process';
 import { TaskRecord, CostData } from './agents/types';
 import { getAgent } from './agents/registry';
 import { renderPrompt } from './prompt';
@@ -139,14 +139,15 @@ export class TaskManager {
         let child: ChildProcess;
         try {
             // Obsidian GUI apps on macOS don't inherit the user's shell environment.
-            // Source the login shell to get PATH, API keys, and other env vars.
-            const env = this.getShellEnv();
+            // Spawn through a login shell so the agent gets PATH, API keys, etc.
+            const shell = process.env.SHELL || '/bin/zsh';
+            const escapedArgs = args.map(a => this.shellEscape(a));
+            const fullCmd = `${this.shellEscape(command)} ${escapedArgs.join(' ')}`;
 
-            child = spawn(command, args, {
+            child = spawn(shell, ['-l', '-c', fullCmd], {
                 cwd: workingDirectory,
                 stdio: ['ignore', logFd, logFd],
                 detached: false,
-                env,
             });
         } catch (err: any) {
             fs.closeSync(logFd);
@@ -489,45 +490,9 @@ export class TaskManager {
         this.deps.onTaskCountChanged(this.activeTasks.size);
     }
 
-    private _shellEnvCache: Record<string, string> | null = null;
-
-    private getShellEnv(): Record<string, string> {
-        if (this._shellEnvCache) return this._shellEnvCache;
-
-        try {
-            const shell = process.env.SHELL || '/bin/zsh';
-            // Launch a login-interactive shell and dump its environment
-            const result = execSync(`${shell} -ilc 'env'`, {
-                encoding: 'utf-8',
-                timeout: 5000,
-                stdio: ['ignore', 'pipe', 'ignore'],
-            });
-            const env: Record<string, string> = {};
-            for (const line of result.split('\n')) {
-                const idx = line.indexOf('=');
-                if (idx > 0) {
-                    env[line.slice(0, idx)] = line.slice(idx + 1);
-                }
-            }
-            // Ensure we didn't get an empty env
-            if (Object.keys(env).length > 5) {
-                this._shellEnvCache = env;
-                return env;
-            }
-        } catch {
-            // Fall through to process.env
-        }
-
-        // Fallback: use Obsidian's env with extra PATH entries
-        const env = { ...process.env } as Record<string, string>;
-        const extraPaths = ['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin', `${os.homedir()}/.local/bin`, `${os.homedir()}/.pi/agent/bin`];
-        const currentPath = env.PATH || '';
-        const missingPaths = extraPaths.filter(p => !currentPath.includes(p));
-        if (missingPaths.length > 0) {
-            env.PATH = [...missingPaths, currentPath].join(':');
-        }
-        this._shellEnvCache = env;
-        return env;
+    private shellEscape(arg: string): string {
+        // Wrap in single quotes, escaping any internal single quotes
+        return "'" + arg.replace(/'/g, "'\\''" ) + "'";
     }
 
     private isInFrontmatter(taskText: string, noteContent: string, sourceLine: number): boolean {
