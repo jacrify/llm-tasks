@@ -330,18 +330,31 @@ export default class LlmTasksPlugin extends Plugin {
                     new Notice("Current line is not a task.");
                     return;
                 }
+
+                // Try active task first
                 const task = this.findActiveTaskForLine(parsed);
-                if (!task) {
-                    new Notice("No active task found for this line.");
-                    return;
+                if (task) {
+                    const agent = getAgent(task.agentId);
+                    if (agent) {
+                        const output = await agent.peek(task.logFile);
+                        new PeekModal(this.app, `Peek: ${task.taskText.slice(0, 50)}`, output).open();
+                        return;
+                    }
                 }
-                const agent = getAgent(task.agentId);
-                if (!agent) {
-                    new Notice("Agent not found.");
-                    return;
+
+                // Fallback: read from the log note in the vault
+                if (parsed.logNotePath) {
+                    const logContent = await this.readVaultFile(`${parsed.logNotePath}.md`);
+                    if (logContent) {
+                        // Extract the Output section from the log note
+                        const outputMatch = logContent.match(/## Output\n\n([\s\S]*)$/);
+                        const output = outputMatch ? outputMatch[1].trim() : logContent;
+                        new PeekModal(this.app, `Peek: ${parsed.taskText.slice(0, 50)}`, output).open();
+                        return;
+                    }
                 }
-                const output = await agent.peek(task.logFile);
-                new PeekModal(this.app, `Peek: ${task.taskText.slice(0, 50)}`, output).open();
+
+                new Notice("Could not read task output.");
             },
         });
 
@@ -368,6 +381,14 @@ export default class LlmTasksPlugin extends Plugin {
                 new Notice(`Cancelled ${count} task(s).`);
             },
         });
+    }
+
+    private async readVaultFile(path: string): Promise<string | null> {
+        try {
+            return await this.app.vault.adapter.read(path);
+        } catch {
+            return null;
+        }
     }
 
     private findActiveTaskForLine(parsed: { logNotePath: string; taskText: string }): TaskRecord | undefined {
