@@ -1,0 +1,73 @@
+/* LLM Tasks — Custom checkbox states in reading view */
+
+/* Pending task (⏳) */
+input[data-task="⏳"] + span {
+    opacity: 0.7;
+    font-style: italic;
+}
+
+input[data-task="⏳"]:checked {
+    background-color: var(--interactive-accent);
+    border-color: var(--interactive-accent);
+}
+
+/* Completed task (✅) */
+input[data-task="✅"] + span {
+    opacity: 0.6;
+    text-decoration: line-through;
+}
+
+input[data-task="✅"]:checked {
+    background-color: var(--color-green);
+    border-color: var(--color-green);
+}
+
+/* Failed task (❌) */
+input[data-task="❌"] + span {
+    opacity: 0.6;
+    color: var(--text-error);
+}
+
+input[data-task="❌"]:checked {
+    background-color: var(--color-red);
+    border-color: var(--color-red);
+}
+
+/* Peek modal styling */
+.llm-tasks-peek-modal pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-height: 400px;
+    overflow: auto;
+    background: var(--background-secondary);
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 0.85em;
+    line-height: 1.4;
+}
+
+/* Active tasks modal */
+.llm-tasks-active-modal table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.llm-tasks-active-modal th,
+.llm-tasks-active-modal td {
+    padding: 6px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.llm-tasks-active-modal th {
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 0.85em;
+    text-transform: uppercase;
+}
+
+.llm-tasks-active-modal button {
+    padding: 2px 8px;
+    font-size: 0.85em;
+    cursor: pointer;
+}
