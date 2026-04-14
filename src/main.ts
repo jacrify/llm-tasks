@@ -342,14 +342,16 @@ export default class LlmTasksPlugin extends Plugin {
                     }
                 }
 
-                // Fallback: read from the log note in the vault
+                // Fallback: tail the tmpdir log file directly
                 if (parsed.logNotePath) {
-                    const logContent = await this.readVaultFile(`${parsed.logNotePath}.md`);
-                    if (logContent) {
-                        // Extract the Output section from the log note
-                        const outputMatch = logContent.match(/## Output\n\n([\s\S]*)$/);
-                        const output = outputMatch ? outputMatch[1].trim() : logContent;
-                        new PeekModal(this.app, `Peek: ${parsed.taskText.slice(0, 50)}`, output).open();
+                    const taskId = parsed.logNotePath.split('/').pop() || '';
+                    const logFile = require('path').join(require('os').tmpdir(), 'llm-tasks', `${taskId}.log`);
+                    const fs = require('fs');
+                    if (fs.existsSync(logFile)) {
+                        const content = fs.readFileSync(logFile, 'utf-8');
+                        const lines = content.split('\n');
+                        const tail = lines.slice(-50).join('\n');
+                        new PeekModal(this.app, `Peek: ${parsed.taskText.slice(0, 50)}`, tail || '(empty)').open();
                         return;
                     }
                 }
