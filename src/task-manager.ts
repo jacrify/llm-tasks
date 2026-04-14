@@ -139,12 +139,19 @@ export class TaskManager {
         let child: ChildProcess;
         try {
             // Obsidian GUI apps on macOS don't inherit the user's shell environment.
-            // Spawn through a login shell so the agent gets PATH, API keys, etc.
-            const shell = process.env.SHELL || '/bin/zsh';
+            // Explicitly source shell profile files so the agent gets PATH, API keys, etc.
+            const shell = '/bin/zsh';
             const escapedArgs = args.map(a => this.shellEscape(a));
             const fullCmd = `${this.shellEscape(command)} ${escapedArgs.join(' ')}`;
+            const home = os.homedir();
+            const sourceProfiles = [
+                `[ -f /etc/zprofile ] && . /etc/zprofile`,
+                `[ -f '${home}/.zprofile' ] && . '${home}/.zprofile'`,
+                `[ -f '${home}/.zshrc' ] && . '${home}/.zshrc'`,
+            ].join('; ');
+            const wrappedCmd = `${sourceProfiles}; ${fullCmd}`;
 
-            child = spawn(shell, ['-l', '-c', fullCmd], {
+            child = spawn(shell, ['-c', wrappedCmd], {
                 cwd: workingDirectory,
                 stdio: ['ignore', logFd, logFd],
                 detached: false,
