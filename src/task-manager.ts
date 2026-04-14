@@ -65,11 +65,11 @@ export class TaskManager {
 
         // Detect continuation context
         const lines = noteContent.split('\n');
-        const isContinuation = isIndentedLine(taskText);
+        const isIndented = isIndentedLine(taskText);
         let resumeSessionId: string | null = null;
         let parentLine: number | null = null;
 
-        if (isContinuation) {
+        if (isIndented) {
             parentLine = findParentTaskLine(lines, sourceLine);
 
             if (parentLine !== null) {
@@ -82,10 +82,11 @@ export class TaskManager {
                         throw new Error('Parent task is still running.');
                     }
                 }
-            }
 
-            // Find session to resume from
-            resumeSessionId = findResumeSession(lines, sourceLine);
+                // Find session to resume from
+                resumeSessionId = findResumeSession(lines, sourceLine);
+            }
+            // If no parent task line, treat as standalone (parentLine stays null, no resume)
         }
 
         // Strip leading whitespace and list marker ("- ") if present

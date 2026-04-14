@@ -54,7 +54,7 @@ Multiple follow-ups stay at the same indent level — no deeper nesting:
 
 The plugin works with any CLI agent that supports non-interactive mode. It ships with presets for:
 
-### Claude Code
+### [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview)
 
 Default preset. Uses `claude -p --dangerously-skip-permissions`.
 
@@ -62,7 +62,7 @@ Default preset. Uses `claude -p --dangerously-skip-permissions`.
 
 Sessions are tracked via `--session-id` and continued with `--resume`.
 
-### Pi
+### [Pi](https://github.com/mariozechner/pi-coding-agent)
 
 Uses `pi -p`. Sessions are tracked via `--session <path>` with session files stored in `/tmp/llm-tasks/sessions/`.
 

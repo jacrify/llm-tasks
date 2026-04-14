@@ -102,7 +102,11 @@ export default class LlmTasksPlugin extends Plugin {
                         noteContent
                     );
 
-                    const isContinuation = isIndentedLine(lineText);
+                    const isIndented = isIndentedLine(lineText);
+                    const lines = editor.getValue().split('\n');
+                    const parentIdx = isIndented ? findParentTaskLine(lines, line) : null;
+                    const isContinuation = isIndented && parentIdx !== null;
+
                     if (isContinuation) {
                         // Continuation: indented line gets llm tag but no marker
                         const indent = getIndent(lineText);
@@ -114,18 +118,15 @@ export default class LlmTasksPlugin extends Plugin {
                         editor.setLine(line, contLine);
 
                         // Update parent marker to pending
-                        const lines = editor.getValue().split('\n');
-                        const parentIdx = findParentTaskLine(lines, line);
-                        if (parentIdx !== null) {
-                            const parentLine = lines[parentIdx];
-                            const parsed = parseTaskLine(parentLine);
-                            if (parsed && parsed.marker !== this.settings.pendingMarker) {
-                                const updated = updateTaskMarker(parentLine, parsed.marker, this.settings.pendingMarker);
-                                editor.setLine(parentIdx, updated);
-                            }
+                        const parentLine = lines[parentIdx];
+                        const parsed = parseTaskLine(parentLine);
+                        if (parsed && parsed.marker !== this.settings.pendingMarker) {
+                            const updated = updateTaskMarker(parentLine, parsed.marker, this.settings.pendingMarker);
+                            editor.setLine(parentIdx, updated);
                         }
                     } else {
-                        const taskLine = formatTaskLine(
+                        const indent = isIndented ? getIndent(lineText) : '';
+                        const taskLine = indent + formatTaskLine(
                             record.taskText,
                             record.id,
                             this.settings.pendingMarker,

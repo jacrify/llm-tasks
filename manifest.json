@@ -2,8 +2,8 @@
   "id": "llm-tasks",
   "name": "LLM Tasks",
   "version": "1.0.0",
-  "minAppVersion": "1.0.0",
-  "description": "Dispatch lines of text as tasks to LLM agents directly from your notes",
+  "minAppVersion": "1.12.7",
+  "description": "Dispatch lines of text as tasks to LLM agents directly from your notes.",
   "author": "John",
   "isDesktopOnly": true
 }
