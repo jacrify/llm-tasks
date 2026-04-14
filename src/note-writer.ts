@@ -18,8 +18,8 @@ export function generateTaskId(taskText: string, timestamp: Date): string {
 
 /**
  * Format a task line for the source note.
- * With wikilinks: `- [⏳] [[llmlogs/2026-04-14_143022_slug|⏳ Task text]]`
- * Without:        `- [⏳] Task text`
+ * With wikilinks: `- ⏳ [[llmlogs/2026-04-14_143022_slug|Task text]]`
+ * Without:        `- ⏳ Task text`
  */
 export function formatTaskLine(
     taskText: string,
@@ -28,20 +28,17 @@ export function formatTaskLine(
     useWikilinks: boolean
 ): string {
     if (useWikilinks) {
-        return `- [${marker}] [[${logNotePath}|${marker} ${taskText}]]`;
+        return `- ${marker} [[${logNotePath}|${taskText}]]`;
     }
-    return `- [${marker}] ${taskText}`;
+    return `- ${marker} ${taskText}`;
 }
 
 /**
- * Replace the marker in a formatted task line (both checkbox and wikilink alias).
+ * Replace the marker in a formatted task line.
  */
 export function updateTaskMarker(line: string, oldMarker: string, newMarker: string): string {
-    // Replace checkbox marker: [old] → [new]
-    let result = line.replace(`[${oldMarker}]`, `[${newMarker}]`);
-    // Replace wikilink alias marker: |old  → |new
-    result = result.replace(`|${oldMarker} `, `|${newMarker} `);
-    return result;
+    // Replace the first occurrence of the old marker with the new one
+    return line.replace(`- ${oldMarker} `, `- ${newMarker} `);
 }
 
 /**
@@ -164,9 +161,9 @@ export function updateLogNoteOnComplete(
 export function parseTaskLine(
     line: string
 ): { marker: string; logNotePath: string; taskText: string } | null {
-    // Try wikilink format: - [marker] [[path|marker taskText]]
+    // Try wikilink format: - marker [[path|taskText]]
     const wikiMatch = line.match(
-        /^- \[([^\]]+)\] \[\[([^|]+)\|[^\]]*? (.+?)\]\]$/
+        /^- ([^\s\[]+) \[\[([^|]+)\|(.+?)\]\]$/
     );
     if (wikiMatch) {
         return {
@@ -176,8 +173,8 @@ export function parseTaskLine(
         };
     }
 
-    // Try plain format: - [marker] taskText
-    const plainMatch = line.match(/^- \[([^\]]+)\] (.+)$/);
+    // Try plain format: - marker taskText
+    const plainMatch = line.match(/^- ([^\s\[]+) (.+)$/);
     if (plainMatch) {
         return {
             marker: plainMatch[1],

@@ -9,25 +9,25 @@ import { TaskRecord } from "../src/agents/types";
 
 describe("extractRetryTaskText", () => {
     it("extracts original task text from a failed wikilink line", () => {
-        const line = "- [❌] [[llmlogs/2026-04-14_143022_refactor-stuff|❌ Refactor the secret redaction]]";
+        const line = "- ❌ [[llmlogs/2026-04-14_143022_refactor-stuff|Refactor the secret redaction]]";
         const result = extractRetryTaskText(line, "❌");
         expect(result).toBe("Refactor the secret redaction");
     });
 
     it("extracts original task text from a failed plain line", () => {
-        const line = "- [❌] Fix the broken test";
+        const line = "- ❌ Fix the broken test";
         const result = extractRetryTaskText(line, "❌");
         expect(result).toBe("Fix the broken test");
     });
 
     it("returns null for a non-failed line (pending)", () => {
-        const line = "- [⏳] [[llmlogs/2026-04-14_143022_some-task|⏳ Some task]]";
+        const line = "- ⏳ [[llmlogs/2026-04-14_143022_some-task|Some task]]";
         const result = extractRetryTaskText(line, "❌");
         expect(result).toBeNull();
     });
 
     it("returns null for a non-failed line (done)", () => {
-        const line = "- [✅] [[llmlogs/2026-04-14_143022_done-task|✅ Done task]]";
+        const line = "- ✅ [[llmlogs/2026-04-14_143022_done-task|Done task]]";
         const result = extractRetryTaskText(line, "❌");
         expect(result).toBeNull();
     });
@@ -41,13 +41,13 @@ describe("extractRetryTaskText", () => {
 
 describe("extractLogNotePath", () => {
     it("extracts log note path from wikilink task line", () => {
-        const line = "- [⏳] [[llmlogs/2026-04-14_143022_refactor-stuff|⏳ Refactor stuff]]";
+        const line = "- ⏳ [[llmlogs/2026-04-14_143022_refactor-stuff|Refactor stuff]]";
         const result = extractLogNotePath(line);
         expect(result).toBe("llmlogs/2026-04-14_143022_refactor-stuff");
     });
 
     it("returns null for plain format task line (no log path)", () => {
-        const line = "- [⏳] Some plain task";
+        const line = "- ⏳ Some plain task";
         const result = extractLogNotePath(line);
         expect(result).toBeNull();
     });
@@ -89,7 +89,7 @@ describe("findActiveTaskForParsedLine", () => {
 
     it("finds active task by logNotePath", () => {
         const parsed = parseTaskLine(
-            "- [⏳] [[llmlogs/2026-04-14_143022_task-alpha|⏳ Task alpha]]"
+            "- ⏳ [[llmlogs/2026-04-14_143022_task-alpha|Task alpha]]"
         )!;
         expect(parsed).not.toBeNull();
         const result = findActiveTaskForParsedLine(parsed, activeTasks);
@@ -98,7 +98,7 @@ describe("findActiveTaskForParsedLine", () => {
     });
 
     it("finds active task by task text fallback", () => {
-        const parsed = parseTaskLine("- [⏳] Task beta")!;
+        const parsed = parseTaskLine("- ⏳ Task beta")!;
         expect(parsed).not.toBeNull();
         const result = findActiveTaskForParsedLine(parsed, activeTasks);
         expect(result).toBeDefined();
@@ -106,7 +106,7 @@ describe("findActiveTaskForParsedLine", () => {
     });
 
     it("returns undefined when no match found", () => {
-        const parsed = parseTaskLine("- [⏳] Unknown task")!;
+        const parsed = parseTaskLine("- ⏳ Unknown task")!;
         expect(parsed).not.toBeNull();
         const result = findActiveTaskForParsedLine(parsed, activeTasks);
         expect(result).toBeUndefined();
@@ -115,7 +115,7 @@ describe("findActiveTaskForParsedLine", () => {
 
 describe("parseTaskLine for active task lines", () => {
     it("parses wikilink format correctly", () => {
-        const line = "- [⏳] [[llmlogs/2026-04-14_143022_my-task|⏳ My task text]]";
+        const line = "- ⏳ [[llmlogs/2026-04-14_143022_my-task|My task text]]";
         const result = parseTaskLine(line);
         expect(result).not.toBeNull();
         expect(result!.marker).toBe("⏳");
@@ -124,7 +124,7 @@ describe("parseTaskLine for active task lines", () => {
     });
 
     it("parses failed wikilink format", () => {
-        const line = "- [❌] [[llmlogs/2026-04-14_143022_my-task|❌ My task text]]";
+        const line = "- ❌ [[llmlogs/2026-04-14_143022_my-task|My task text]]";
         const result = parseTaskLine(line);
         expect(result).not.toBeNull();
         expect(result!.marker).toBe("❌");
@@ -133,7 +133,7 @@ describe("parseTaskLine for active task lines", () => {
     });
 
     it("parses done wikilink format", () => {
-        const line = "- [✅] [[llmlogs/2026-04-14_143022_my-task|✅ My task text]]";
+        const line = "- ✅ [[llmlogs/2026-04-14_143022_my-task|My task text]]";
         const result = parseTaskLine(line);
         expect(result).not.toBeNull();
         expect(result!.marker).toBe("✅");
@@ -152,7 +152,7 @@ describe("parseTaskLine for active task lines", () => {
 
 describe("peek - log file path extraction", () => {
     it("extracts correct log note path for peek lookup", () => {
-        const line = "- [⏳] [[llmlogs/2026-04-14_143022_my-task|⏳ My task text]]";
+        const line = "- ⏳ [[llmlogs/2026-04-14_143022_my-task|My task text]]";
         const parsed = parseTaskLine(line)!;
         expect(parsed.logNotePath).toBe("llmlogs/2026-04-14_143022_my-task");
 

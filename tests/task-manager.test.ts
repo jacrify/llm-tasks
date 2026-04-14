@@ -64,16 +64,16 @@ describe('TaskManager', () => {
             await expect(manager.dispatch('   ', 'note.md', 0, 'content')).rejects.toThrow('empty');
         });
 
-        it('rejects lines containing [⏳]', async () => {
-            await expect(manager.dispatch('- [⏳] some task', 'note.md', 0, 'content')).rejects.toThrow('already a task');
+        it('rejects lines containing ⏳ marker', async () => {
+            await expect(manager.dispatch('- ⏳ some task', 'note.md', 0, 'content')).rejects.toThrow('already a task');
         });
 
-        it('rejects lines containing [✅]', async () => {
-            await expect(manager.dispatch('- [✅] some task', 'note.md', 0, 'content')).rejects.toThrow('already a task');
+        it('rejects lines containing ✅ marker', async () => {
+            await expect(manager.dispatch('- ✅ some task', 'note.md', 0, 'content')).rejects.toThrow('already a task');
         });
 
-        it('rejects lines containing [❌]', async () => {
-            await expect(manager.dispatch('- [❌] some task', 'note.md', 0, 'content')).rejects.toThrow('already a task');
+        it('rejects lines containing ❌ marker', async () => {
+            await expect(manager.dispatch('- ❌ some task', 'note.md', 0, 'content')).rejects.toThrow('already a task');
         });
 
         it('rejects lines starting with # (headings)', async () => {

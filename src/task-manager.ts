@@ -55,9 +55,9 @@ export class TaskManager {
             throw new Error('Cannot dispatch a heading line');
         }
         // Check if it's already a task line
-        if (trimmed.includes(`[${this.settings.pendingMarker}]`) ||
-            trimmed.includes(`[${this.settings.doneMarker}]`) ||
-            trimmed.includes(`[${this.settings.failedMarker}]`)) {
+        if (trimmed.startsWith(`- ${this.settings.pendingMarker} `) ||
+            trimmed.startsWith(`- ${this.settings.doneMarker} `) ||
+            trimmed.startsWith(`- ${this.settings.failedMarker} `)) {
             throw new Error('Line is already a task');
         }
         // Check frontmatter (line between --- delimiters)
@@ -333,7 +333,7 @@ export class TaskManager {
             // Find the task line (may have shifted, search by logNote path)
             let found = false;
             for (let i = 0; i < lines.length; i++) {
-                if (lines[i].includes(record.logNote) || (i === record.sourceLine && lines[i].includes(`[${this.settings.pendingMarker}]`))) {
+                if (lines[i].includes(record.logNote) || (i === record.sourceLine && lines[i].includes(`- ${this.settings.pendingMarker} `))) {
                     lines[i] = updateTaskMarker(lines[i], this.settings.pendingMarker, newMarker);
                     found = true;
                     break;
@@ -396,7 +396,7 @@ export class TaskManager {
         if (sourceContent) {
             const lines = sourceContent.split('\n');
             for (let i = 0; i < lines.length; i++) {
-                if (lines[i].includes(record.logNote) || (i === record.sourceLine && lines[i].includes(`[${this.settings.pendingMarker}]`))) {
+                if (lines[i].includes(record.logNote) || (i === record.sourceLine && lines[i].includes(`- ${this.settings.pendingMarker} `))) {
                     lines[i] = updateTaskMarker(lines[i], this.settings.pendingMarker, this.settings.failedMarker);
                     break;
                 }
@@ -479,7 +479,7 @@ export class TaskManager {
                 if (sourceContent) {
                     const lines = sourceContent.split('\n');
                     for (let i = 0; i < lines.length; i++) {
-                        if (lines[i].includes(record.logNote) || (i === record.sourceLine && lines[i].includes(`[${this.settings.pendingMarker}]`))) {
+                        if (lines[i].includes(record.logNote) || (i === record.sourceLine && lines[i].includes(`- ${this.settings.pendingMarker} `))) {
                             lines[i] = updateTaskMarker(lines[i], this.settings.pendingMarker, this.settings.failedMarker);
                             break;
                         }

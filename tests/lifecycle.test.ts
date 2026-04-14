@@ -158,8 +158,8 @@ describe('Full Lifecycle Integration', () => {
         // 7. Verify: source note line was updated with done marker
         const finalSource = vaultFiles.get('note.md');
         expect(finalSource).toBeDefined();
-        expect(finalSource).toContain(`[${settings.doneMarker}]`);
-        expect(finalSource).not.toContain(`[${settings.pendingMarker}]`);
+        expect(finalSource).toContain(`- ${settings.doneMarker} `);
+        expect(finalSource).not.toContain(`- ${settings.pendingMarker} `);
 
         // 8. Verify: completion notification was called
         expect(notifications.some(n => n.includes('completed'))).toBe(true);
@@ -260,7 +260,7 @@ describe('Full Lifecycle Integration', () => {
 
         // Source note should have failed marker
         const finalSource = vaultFiles.get('note.md');
-        expect(finalSource).toContain(`[${settings.failedMarker}]`);
+        expect(finalSource).toContain(`- ${settings.failedMarker} `);
 
         // Notification should mention "failed"
         expect(notifications.some(n => n.includes('failed'))).toBe(true);

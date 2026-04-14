@@ -35,32 +35,32 @@ describe("formatTaskLine", () => {
             true
         );
         expect(result).toBe(
-            "- [⏳] [[llmlogs/2026-04-14_143022_refactor-the-extension|⏳ Refactor the extension]]"
+            "- ⏳ [[llmlogs/2026-04-14_143022_refactor-the-extension|Refactor the extension]]"
         );
     });
 
     it("produces plain text with useWikilinks=false", () => {
         const result = formatTaskLine("Refactor the extension", "", "⏳", false);
-        expect(result).toBe("- [⏳] Refactor the extension");
+        expect(result).toBe("- ⏳ Refactor the extension");
     });
 });
 
 describe("updateTaskMarker", () => {
     it("swaps ⏳→✅ correctly in wikilink line", () => {
         const line =
-            "- [⏳] [[llmlogs/2026-04-14_143022_refactor|⏳ Refactor the extension]]";
+            "- ⏳ [[llmlogs/2026-04-14_143022_refactor|Refactor the extension]]";
         const result = updateTaskMarker(line, "⏳", "✅");
         expect(result).toBe(
-            "- [✅] [[llmlogs/2026-04-14_143022_refactor|✅ Refactor the extension]]"
+            "- ✅ [[llmlogs/2026-04-14_143022_refactor|Refactor the extension]]"
         );
     });
 
     it("swaps ⏳→❌ correctly", () => {
         const line =
-            "- [⏳] [[llmlogs/2026-04-14_143022_refactor|⏳ Refactor the extension]]";
+            "- ⏳ [[llmlogs/2026-04-14_143022_refactor|Refactor the extension]]";
         const result = updateTaskMarker(line, "⏳", "❌");
         expect(result).toBe(
-            "- [❌] [[llmlogs/2026-04-14_143022_refactor|❌ Refactor the extension]]"
+            "- ❌ [[llmlogs/2026-04-14_143022_refactor|Refactor the extension]]"
         );
     });
 });
@@ -186,7 +186,7 @@ describe("updateLogNoteOnComplete", () => {
 describe("parseTaskLine", () => {
     it("extracts components from wikilink task line", () => {
         const line =
-            "- [⏳] [[llmlogs/2026-04-14_143022_refactor|⏳ Refactor the extension]]";
+            "- ⏳ [[llmlogs/2026-04-14_143022_refactor|Refactor the extension]]";
         const parsed = parseTaskLine(line);
         expect(parsed).not.toBeNull();
         expect(parsed!.marker).toBe("⏳");
@@ -195,7 +195,7 @@ describe("parseTaskLine", () => {
     });
 
     it("extracts components from plain task line", () => {
-        const line = "- [⏳] Refactor the extension";
+        const line = "- ⏳ Refactor the extension";
         const parsed = parseTaskLine(line);
         expect(parsed).not.toBeNull();
         expect(parsed!.marker).toBe("⏳");
