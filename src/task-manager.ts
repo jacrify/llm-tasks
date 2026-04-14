@@ -285,16 +285,20 @@ export class TaskManager {
         let cost: CostData | null = null;
         if (agent) {
             try {
-                cost = await agent.extractCost(record.sessionFile);
+                cost = await agent.extractCost(record.sessionFile, record.logFile);
             } catch {
                 // ignore cost extraction errors
             }
         }
 
         // Read output from log file
+        // Use the agent's peek method if available — it can format agent-specific output
+        // (e.g. extracting result text from Claude's JSON output)
         let output = '';
         try {
-            if (fs.existsSync(record.logFile)) {
+            if (agent && fs.existsSync(record.logFile)) {
+                output = await agent.peek(record.logFile, 200);
+            } else if (fs.existsSync(record.logFile)) {
                 output = fs.readFileSync(record.logFile, 'utf-8');
             }
         } catch {

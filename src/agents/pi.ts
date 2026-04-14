@@ -17,7 +17,7 @@ export const piAdapter: AgentAdapter = {
         return exitCode === 0;
     },
 
-    async extractCost(sessionFile: string) {
+    async extractCost(sessionFile: string, _logFile: string) {
         try {
             if (!fs.existsSync(sessionFile)) return null;
             const content = fs.readFileSync(sessionFile, 'utf-8');

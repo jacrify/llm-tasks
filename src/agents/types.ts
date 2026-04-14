@@ -29,8 +29,8 @@ export interface AgentAdapter {
     /** Determine if task succeeded. Default: exit code === 0. */
     isSuccess(exitCode: number): boolean;
 
-    /** Extract cost/usage from session file after completion. */
-    extractCost(sessionFile: string): Promise<CostData | null>;
+    /** Extract cost/usage from session/log files after completion. */
+    extractCost(sessionFile: string, logFile: string): Promise<CostData | null>;
 
     /** Read last N lines of output. */
     peek(logFile: string, lines?: number): Promise<string>;
