@@ -54,7 +54,7 @@ Multiple follow-ups stay at the same indent level — no deeper nesting:
 
 ## Supported Agents
 
-The plugin works with any CLI agent that supports non-interactive mode. It ships with presets for:
+The plugin works with any CLI agent that supports non-interactive mode. It ships with presets for [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) and [Pi](https://github.com/mariozechner/pi-coding-agent):
 
 ### [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview)
 
@@ -66,15 +66,15 @@ Sessions are tracked via `--session-id` and continued with `--resume`.
 
 ### [Pi](https://github.com/mariozechner/pi-coding-agent)
 
-Uses `pi -p`. Sessions are tracked via `--session <path>` with session files stored in `/tmp/llm-tasks/sessions/`.
+Uses `pi -p`. Sessions are saved to pi's default session directory (`~/.pi/agent/sessions/`) using pi's native filename format. Resume finds the session file automatically by UUID.
 
 ### Custom Agents
 
 Select "Custom" from the agent preset dropdown and configure:
 
 - **Agent command** — The full command prefix (e.g. `aider --message`). The rendered prompt is appended as the final argument.
-- **Session template** — Args to set session identity on fresh runs. Use `{sessionId}` placeholder. Leave empty if your agent doesn't support sessions.
-- **Resume template** — Args to resume a session on continuations. Use `{sessionId}` placeholder. Leave empty for fresh sessions on every run.
+- **Session template** — Args to set session identity on fresh runs. Use `{sessionId}` placeholder. Leave empty for pi (uses default session dir) or if your agent doesn't support sessions.
+- **Resume template** — Args to resume a session on continuations. Use `{sessionId}` placeholder. Leave empty for pi (resume is handled automatically).
 
 ## Installation
 
@@ -129,8 +129,8 @@ No default hotkeys — assign them in Settings → Hotkeys.
 |---------|-------------|
 | Agent preset | Claude Code, Pi, or Custom. Sets sensible defaults for all fields below. |
 | Agent command | Full command prefix. The prompt is appended as the final argument. |
-| Session template | Args for fresh sessions. `{sessionId}` is replaced with a generated UUID. |
-| Resume template | Args for continuations. `{sessionId}` is replaced with the previous session's UUID. |
+| Session template | Args for fresh sessions. `{sessionId}` is replaced with a generated UUID. Leave empty for pi (uses default session dir). |
+| Resume template | Args for continuations. `{sessionId}` is replaced with the previous session's UUID. Leave empty for pi (handled automatically). |
 
 ### Prompt
 
@@ -173,9 +173,9 @@ Agent stdout and stderr are captured to log files in your system's temp director
 
 2. **Polling**: A timer checks if each tracked PID is still alive. When a process exits, the plugin reads the exit code and updates the note.
 
-3. **Continuation**: When dispatching an indented line, the plugin scans upward for sibling/parent lines with `session:` tags. If found, it uses `resumeTemplate` instead of `sessionTemplate` to resume the previous session.
+3. **Continuation**: When dispatching an indented line, the plugin scans upward for sibling/parent lines with `session:` tags. If found, it uses `resumeTemplate` instead of `sessionTemplate` to resume the previous session. For pi, the plugin finds the session file by UUID in pi's default session directory.
 
-4. **Session IDs**: A UUID is generated at dispatch time and passed to the agent via `sessionTemplate`. This UUID is stored in the note's HTML comment and used for future continuations.
+4. **Session IDs**: A UUID is generated at dispatch time and passed to the agent via `sessionTemplate` (or used to build a pi-native session path). This UUID is stored in the note's HTML comment and used for future continuations.
 
 ## Disclosure
 
@@ -195,3 +195,75 @@ npm test         # run tests
 ```
 
 Tests use vitest with a mock of the Obsidian API. Core logic is unit-tested without Obsidian. Integration tests spawn real processes.
+
+## Releasing
+
+Once the plugin is listed in the Obsidian community plugin directory, users receive updates automatically when you publish a new GitHub release. Here's the process for each release:
+
+### 1. Bump the version
+
+Update the `version` field in **both** files to the new semver version:
+
+- `manifest.json`
+- `package.json`
+
+```bash
+# Example: bumping to 1.1.0
+sed -i '' 's/"version": ".*"/"version": "1.1.0"/' manifest.json package.json
+```
+
+Also update `minAppVersion` in `manifest.json` if the plugin now requires a newer Obsidian version.
+
+### 2. Build and test
+
+```bash
+npm run build
+npm test
+```
+
+Verify that `main.js` is freshly built and reflects your changes.
+
+### 3. Commit and tag
+
+```bash
+git add manifest.json package.json main.js
+git commit -m "Release 1.1.0"
+git tag 1.1.0
+git push origin main --tags
+```
+
+The **tag must exactly match** the `version` in `manifest.json` (e.g. `1.1.0`, not `v1.1.0`).
+
+### 4. Create the GitHub release
+
+Go to **Releases → Draft a new release** on GitHub (or use the `gh` CLI):
+
+```bash
+gh release create 1.1.0 \
+  main.js \
+  manifest.json \
+  styles.css \
+  --title "1.1.0" \
+  --notes "Release notes here"
+```
+
+The release **must** have these three files attached as assets:
+
+| Asset | Description |
+|-------|-------------|
+| `main.js` | Compiled plugin code |
+| `manifest.json` | Plugin metadata (version must match the tag) |
+| `styles.css` | Plugin styles |
+
+Obsidian's plugin infrastructure fetches these assets from the GitHub release, so all three are required even if `styles.css` is minimal.
+
+### 5. Verify
+
+- Check the release page on GitHub — confirm the tag and all three assets are present.
+- In Obsidian, go to **Settings → Community Plugins → Check for updates** to confirm the new version appears.
+
+### Notes
+
+- **No PR needed for updates.** The initial community-plugins.json PR was a one-time submission. Subsequent releases are picked up automatically from GitHub releases.
+- **Tag format matters.** Obsidian expects bare semver tags (`1.1.0`), not prefixed ones (`v1.1.0`).
+- **`versions.json` is optional.** If you need to declare different `minAppVersion` values for different plugin versions, create a `versions.json` mapping versions to minimum Obsidian versions. Not needed if `minAppVersion` stays the same.

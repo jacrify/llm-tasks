@@ -122,10 +122,20 @@ export class TaskManager {
             cmdParts.push(...resumeArgs.split(/\s+/).filter(Boolean));
             // The agentSessionId for this continuation is the one we're resuming
             // (we still generate a new UUID for the task record, but the agent session is the same)
+        } else if (resumeSessionId && this.isPiCommand()) {
+            // Pi resume with no explicit resume template — find session file in pi's default dir
+            const sessionFile = this.findPiSessionFile(resumeSessionId);
+            if (sessionFile) {
+                cmdParts.push('--session', sessionFile);
+            }
         } else if (this.settings.sessionTemplate) {
-            // Fresh session — set session identity
+            // Fresh session — use explicit session template
             const sessionArgs = this.settings.sessionTemplate.replace(/\{sessionId\}/g, agentSessionId);
             cmdParts.push(...sessionArgs.split(/\s+/).filter(Boolean));
+        } else if (this.isPiCommand()) {
+            // Pi preset with no explicit session template — use pi's default session dir
+            const sessionPath = this.buildPiSessionPath(agentSessionId, now);
+            cmdParts.push('--session', sessionPath);
         }
 
         const agentCmd = cmdParts.map(a => this.shellEscape(a)).join(' ') + ' ' + this.shellEscape(renderedPrompt);
@@ -420,6 +430,46 @@ export class TaskManager {
             HOME: os.homedir(),
             PATH: extraPath ? `${extraPath}:${currentPath}` : currentPath,
         };
+    }
+
+    /**
+     * Find a pi session file by UUID in pi's default session directory.
+     * Searches the cwd-specific session dir for a file containing the UUID.
+     */
+    private findPiSessionFile(uuid: string): string | null {
+        const piDir = process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent');
+        const cwd = this.deps.getVaultPath();
+        const encodedCwd = '--' + cwd.replace(/\//g, '-').replace(/^-/, '') + '--';
+        const sessionDir = path.join(piDir, 'sessions', encodedCwd);
+        try {
+            const files = fs.readdirSync(sessionDir);
+            const match = files.find(f => f.includes(uuid) && f.endsWith('.jsonl'));
+            if (match) {
+                return path.join(sessionDir, match);
+            }
+        } catch { /* dir doesn't exist */ }
+        return null;
+    }
+
+    private isPiCommand(): boolean {
+        const cmd = (this.settings.agentCommand || '').trim();
+        return cmd === 'pi -p' || cmd.startsWith('pi -p ') || cmd.startsWith('pi --print');
+    }
+
+    /**
+     * Build a session file path in pi's native format:
+     * ~/.pi/agent/sessions/{encoded-cwd}/{timestamp}_{uuid}.jsonl
+     */
+    private buildPiSessionPath(uuid: string, now: Date): string {
+        const piDir = process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent');
+        const cwd = this.deps.getVaultPath();
+        const encodedCwd = '--' + cwd.replace(/\//g, '-').replace(/^-/, '') + '--';
+        const ts = now.toISOString()
+            .replace(/:/g, '-')
+            .replace(/\./g, '-');
+        const sessionDir = path.join(piDir, 'sessions', encodedCwd);
+        fs.mkdirSync(sessionDir, { recursive: true });
+        return path.join(sessionDir, `${ts}_${uuid}.jsonl`);
     }
 
     private shellEscape(arg: string): string {

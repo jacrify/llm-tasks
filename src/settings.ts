@@ -45,8 +45,8 @@ const AGENT_PRESETS: Record<string, { agentCommand: string; sessionTemplate: str
     },
     pi: {
         agentCommand: 'pi -p',
-        sessionTemplate: '--session /tmp/llm-tasks/sessions/{sessionId}.jsonl',
-        resumeTemplate: '--session /tmp/llm-tasks/sessions/{sessionId}.jsonl',
+        sessionTemplate: '',
+        resumeTemplate: '',
     },
     custom: {
         agentCommand: '',
@@ -138,7 +138,7 @@ export class LlmTasksSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName("Session template")
-            .setDesc("Args to set session identity. Use {sessionId} placeholder. E.g. --session-id {sessionId} for claude, --session /tmp/llm-tasks/{sessionId}.jsonl for pi.")
+            .setDesc("Args to set session identity. Use {sessionId} placeholder. E.g. --session-id {sessionId} for claude. Leave empty for pi (uses default session dir).")
             .addText((text) => {
                 text.inputEl.style.width = '300px';
                 text.inputEl.style.fontFamily = 'monospace';
@@ -153,7 +153,7 @@ export class LlmTasksSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName("Resume template")
-            .setDesc("Args to resume a session. Use {sessionId} placeholder. E.g. --resume {sessionId} for claude, --session /tmp/llm-tasks/{sessionId}.jsonl for pi.")
+            .setDesc("Args to resume a session. Use {sessionId} placeholder. E.g. --resume {sessionId} for claude, --session {sessionId} for pi.")
             .addText((text) => {
                 text.inputEl.style.width = '300px';
                 text.inputEl.style.fontFamily = 'monospace';
