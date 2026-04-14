@@ -4,26 +4,13 @@ import { AgentAdapter } from './types';
 export const piAdapter: AgentAdapter = {
     id: "pi",
     name: "Pi",
+    defaultCommand: "pi",
 
-    settings: [
-        { key: "binaryPath", name: "Binary path", description: "Path to pi executable", type: "text", default: "pi" },
-        { key: "model", name: "Model", description: "Model pattern (e.g. sonnet, opus). Leave blank for default", type: "text", default: "" },
-        { key: "provider", name: "Provider", description: "Provider name (e.g. google, anthropic, amazon-bedrock). Leave blank for default", type: "text", default: "" },
-        { key: "additionalArgs", name: "Additional arguments", description: "Extra CLI args (space-separated)", type: "text", default: "" },
-    ],
-
-    buildCommand({ renderedPrompt, sessionFile, agentSettings }) {
+    buildArgs({ renderedPrompt, sessionFile, extraArgs }) {
         const args = ["-p", "--session", sessionFile];
-
-        if (agentSettings.model) args.push("--model", agentSettings.model);
-        if (agentSettings.provider) args.push("--provider", agentSettings.provider);
-        if (agentSettings.additionalArgs) {
-            args.push(...agentSettings.additionalArgs.split(/\s+/).filter(Boolean));
-        }
-
+        if (extraArgs.length > 0) args.push(...extraArgs);
         args.push(renderedPrompt);
-
-        return { command: agentSettings.binaryPath || "pi", args };
+        return args;
     },
 
     isSuccess(exitCode) {

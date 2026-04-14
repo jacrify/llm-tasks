@@ -5,81 +5,73 @@ import { getAgent, listAgents } from '../src/agents/registry';
 
 const baseParams = {
     renderedPrompt: 'Do the thing',
-    logFile: '/tmp/llm-tasks/test.log',
     sessionFile: '/tmp/llm-tasks/sessions/test',
-    workingDirectory: '/home/user/vault',
-    agentSettings: {} as Record<string, any>,
+    extraArgs: [] as string[],
 };
 
 describe('pi adapter', () => {
-    it('buildCommand returns correct command/args with default settings', () => {
-        const result = piAdapter.buildCommand(baseParams);
-        expect(result.command).toBe('pi');
-        expect(result.args).toEqual(['-p', '--session', '/tmp/llm-tasks/sessions/test', 'Do the thing']);
+    it('has correct defaultCommand', () => {
+        expect(piAdapter.defaultCommand).toBe('pi');
     });
 
-    it('buildCommand includes --model only when model is set', () => {
-        const withModel = piAdapter.buildCommand({
-            ...baseParams,
-            agentSettings: { model: 'sonnet' },
-        });
-        expect(withModel.args).toContain('--model');
-        expect(withModel.args).toContain('sonnet');
-
-        const withoutModel = piAdapter.buildCommand({
-            ...baseParams,
-            agentSettings: { model: '' },
-        });
-        expect(withoutModel.args).not.toContain('--model');
+    it('buildArgs returns correct args with no extra args', () => {
+        const result = piAdapter.buildArgs(baseParams);
+        expect(result).toEqual(['-p', '--session', '/tmp/llm-tasks/sessions/test', 'Do the thing']);
     });
 
-    it('buildCommand includes --provider only when set', () => {
-        const withProvider = piAdapter.buildCommand({
+    it('buildArgs includes extra args when provided', () => {
+        const result = piAdapter.buildArgs({
             ...baseParams,
-            agentSettings: { provider: 'anthropic' },
+            extraArgs: ['--model', 'sonnet'],
         });
-        expect(withProvider.args).toContain('--provider');
-        expect(withProvider.args).toContain('anthropic');
-
-        const withoutProvider = piAdapter.buildCommand({
-            ...baseParams,
-            agentSettings: { provider: '' },
-        });
-        expect(withoutProvider.args).not.toContain('--provider');
+        expect(result).toContain('--model');
+        expect(result).toContain('sonnet');
     });
 
-    it('buildCommand splits additionalArgs correctly', () => {
-        const result = piAdapter.buildCommand({
+    it('buildArgs includes --provider in extra args', () => {
+        const result = piAdapter.buildArgs({
             ...baseParams,
-            agentSettings: { additionalArgs: '--verbose  --timeout 30' },
+            extraArgs: ['--provider', 'anthropic'],
         });
-        expect(result.args).toContain('--verbose');
-        expect(result.args).toContain('--timeout');
-        expect(result.args).toContain('30');
+        expect(result).toContain('--provider');
+        expect(result).toContain('anthropic');
     });
 
-    it('buildCommand uses custom binaryPath', () => {
-        const result = piAdapter.buildCommand({
+    it('buildArgs passes through multiple extra args', () => {
+        const result = piAdapter.buildArgs({
             ...baseParams,
-            agentSettings: { binaryPath: '/usr/local/bin/pi' },
+            extraArgs: ['--verbose', '--timeout', '30'],
         });
-        expect(result.command).toBe('/usr/local/bin/pi');
+        expect(result).toContain('--verbose');
+        expect(result).toContain('--timeout');
+        expect(result).toContain('30');
+    });
+
+    it('isSuccess returns true for exit code 0', () => {
+        expect(piAdapter.isSuccess(0)).toBe(true);
+    });
+
+    it('isSuccess returns false for non-zero exit code', () => {
+        expect(piAdapter.isSuccess(1)).toBe(false);
     });
 });
 
 describe('claude-code adapter', () => {
-    it('buildCommand returns correct command/args', () => {
-        const result = claudeCodeAdapter.buildCommand(baseParams);
-        expect(result.command).toBe('claude');
-        expect(result.args).toEqual(['-p', 'Do the thing']);
+    it('has correct defaultCommand', () => {
+        expect(claudeCodeAdapter.defaultCommand).toBe('claude');
     });
 
-    it('buildCommand includes --model when set', () => {
-        const result = claudeCodeAdapter.buildCommand({
+    it('buildArgs returns correct args', () => {
+        const result = claudeCodeAdapter.buildArgs(baseParams);
+        expect(result).toEqual(['-p', 'Do the thing']);
+    });
+
+    it('buildArgs includes extra args when set', () => {
+        const result = claudeCodeAdapter.buildArgs({
             ...baseParams,
-            agentSettings: { model: 'opus' },
+            extraArgs: ['--model', 'opus'],
         });
-        expect(result.args).toEqual(['-p', '--model', 'opus', 'Do the thing']);
+        expect(result).toEqual(['-p', '--model', 'opus', 'Do the thing']);
     });
 });
 

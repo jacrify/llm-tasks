@@ -11,9 +11,9 @@ import { AgentAdapter } from '../src/agents/types';
 const testAdapter: AgentAdapter = {
     id: 'test',
     name: 'Test',
-    settings: [],
-    buildCommand({ renderedPrompt }) {
-        return { command: '/bin/sh', args: ['-c', renderedPrompt] };
+    defaultCommand: '/bin/sh',
+    buildArgs({ renderedPrompt }) {
+        return ['-c', renderedPrompt];
     },
     isSuccess: (code) => code === 0,
     extractCost: async () => null,

@@ -1,12 +1,3 @@
-export interface AgentSettingDefinition {
-    key: string;
-    name: string;
-    description: string;
-    type: 'text' | 'number' | 'toggle' | 'dropdown';
-    default: any;
-    options?: string[];
-}
-
 export interface CostData {
     model?: string;
     provider?: string;
@@ -18,21 +9,33 @@ export interface CostData {
 }
 
 export interface AgentAdapter {
+    /** Unique identifier */
     id: string;
+    /** Display name for settings dropdown */
     name: string;
-    settings: AgentSettingDefinition[];
+    /** Default binary/command name */
+    defaultCommand: string;
 
-    buildCommand(params: {
+    /**
+     * Build the full args array for spawning.
+     * The command itself comes from settings (user can override).
+     */
+    buildArgs(params: {
         renderedPrompt: string;
-        logFile: string;
         sessionFile: string;
-        workingDirectory: string;
-        agentSettings: Record<string, any>;
-    }): { command: string; args: string[] };
+        extraArgs: string[];
+    }): string[];
 
-    isSuccess(exitCode: number, logFile: string): boolean;
+    /** Determine if task succeeded. Default: exit code === 0. */
+    isSuccess(exitCode: number): boolean;
+
+    /** Extract cost/usage from session file after completion. */
     extractCost(sessionFile: string): Promise<CostData | null>;
+
+    /** Read last N lines of output. */
     peek(logFile: string, lines?: number): Promise<string>;
+
+    /** Build a shell command for resuming the session. */
     resumeCommand(sessionFile: string): string;
 }
 

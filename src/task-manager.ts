@@ -104,16 +104,15 @@ export class TaskManager {
         // Resolve working directory
         const workingDirectory = this.resolveWorkingDirectory();
 
-        // Get agent-specific settings
-        const agentSettings = this.settings.agentSettings[agent.id] || {};
-
         // Build command
-        const { command, args } = agent.buildCommand({
+        const command = this.settings.agentCommand || agent.defaultCommand;
+        const extraArgs = this.settings.extraArgs
+            ? this.settings.extraArgs.split(/\s+/).filter(Boolean)
+            : [];
+        const args = agent.buildArgs({
             renderedPrompt,
-            logFile,
             sessionFile,
-            workingDirectory,
-            agentSettings,
+            extraArgs,
         });
 
         // Build log note path
@@ -280,7 +279,7 @@ export class TaskManager {
 
         const agent = getAgent(record.agentId);
         const exitCode = this.exitCodes.get(taskId) ?? null;
-        const success = agent ? agent.isSuccess(exitCode ?? 1, record.logFile) : exitCode === 0;
+        const success = agent ? agent.isSuccess(exitCode ?? 1) : exitCode === 0;
 
         // Extract cost
         let cost: CostData | null = null;

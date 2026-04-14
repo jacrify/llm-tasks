@@ -12,9 +12,9 @@ import { formatTaskLine, updateTaskMarker, parseTaskLine } from '../src/note-wri
 const testAdapter: AgentAdapter = {
     id: 'test-lifecycle',
     name: 'Test Lifecycle',
-    settings: [],
-    buildCommand({ renderedPrompt }) {
-        return { command: '/bin/sh', args: ['-c', renderedPrompt] };
+    defaultCommand: '/bin/sh',
+    buildArgs({ renderedPrompt }) {
+        return ['-c', renderedPrompt];
     },
     isSuccess: (code) => code === 0,
     extractCost: async () => null,
@@ -30,9 +30,9 @@ const testAdapter: AgentAdapter = {
 const badBinaryAdapter: AgentAdapter = {
     id: 'test-bad-binary',
     name: 'Bad Binary',
-    settings: [],
-    buildCommand({ renderedPrompt }) {
-        return { command: '/nonexistent/binary/that/does/not/exist', args: [renderedPrompt] };
+    defaultCommand: '/nonexistent/binary/that/does/not/exist',
+    buildArgs({ renderedPrompt }) {
+        return [renderedPrompt];
     },
     isSuccess: (code) => code === 0,
     extractCost: async () => null,

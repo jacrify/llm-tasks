@@ -4,21 +4,13 @@ import { AgentAdapter } from './types';
 export const claudeCodeAdapter: AgentAdapter = {
     id: "claude-code",
     name: "Claude Code",
+    defaultCommand: "claude",
 
-    settings: [
-        { key: "binaryPath", name: "Binary path", description: "Path to claude executable", type: "text", default: "claude" },
-        { key: "model", name: "Model", description: "Model to use (e.g. sonnet, opus)", type: "text", default: "" },
-        { key: "additionalArgs", name: "Additional arguments", description: "Extra CLI args", type: "text", default: "" },
-    ],
-
-    buildCommand({ renderedPrompt, agentSettings }) {
+    buildArgs({ renderedPrompt, extraArgs }) {
         const args = ["-p"];
-        if (agentSettings.model) args.push("--model", agentSettings.model);
-        if (agentSettings.additionalArgs) {
-            args.push(...agentSettings.additionalArgs.split(/\s+/).filter(Boolean));
-        }
+        if (extraArgs.length > 0) args.push(...extraArgs);
         args.push(renderedPrompt);
-        return { command: agentSettings.binaryPath || "claude", args };
+        return args;
     },
 
     isSuccess(exitCode) {

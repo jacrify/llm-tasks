@@ -11,13 +11,14 @@ describe("DEFAULT_SETTINGS", () => {
         expect(DEFAULT_SETTINGS.contextLimit).toBe(10000);
         expect(DEFAULT_SETTINGS.promptFile).toBe("llm-tasks-prompt.md");
         expect(DEFAULT_SETTINGS.agentType).toBe("pi");
+        expect(DEFAULT_SETTINGS.agentCommand).toBe("");
+        expect(DEFAULT_SETTINGS.extraArgs).toBe("");
         expect(DEFAULT_SETTINGS.workingDirectory).toBe("vault");
         expect(DEFAULT_SETTINGS.customWorkingDirectory).toBe("");
         expect(DEFAULT_SETTINGS.pendingMarker).toBe("⏳");
         expect(DEFAULT_SETTINGS.doneMarker).toBe("✅");
         expect(DEFAULT_SETTINGS.failedMarker).toBe("❌");
         expect(DEFAULT_SETTINGS.useWikilinks).toBe(true);
-        expect(DEFAULT_SETTINGS.agentSettings).toEqual({});
     });
 
     it("contains exactly the expected keys", () => {
@@ -30,13 +31,14 @@ describe("DEFAULT_SETTINGS", () => {
             "contextLimit",
             "promptFile",
             "agentType",
+            "agentCommand",
+            "extraArgs",
             "workingDirectory",
             "customWorkingDirectory",
             "pendingMarker",
             "doneMarker",
             "failedMarker",
             "useWikilinks",
-            "agentSettings",
         ];
         expect(Object.keys(DEFAULT_SETTINGS).sort()).toEqual(expectedKeys.sort());
     });
@@ -64,40 +66,32 @@ describe("mergeSettings", () => {
         expect(result.contextLimit).toBe(10000);
         expect(result.promptFile).toBe("llm-tasks-prompt.md");
         expect(result.agentType).toBe("pi");
+        expect(result.agentCommand).toBe("");
+        expect(result.extraArgs).toBe("");
         expect(result.workingDirectory).toBe("vault");
         expect(result.customWorkingDirectory).toBe("");
         expect(result.pendingMarker).toBe("⏳");
         expect(result.doneMarker).toBe("✅");
         expect(result.failedMarker).toBe("❌");
-        expect(result.agentSettings).toEqual({});
     });
 
-    it("preserves agentSettings for known agents", () => {
+    it("preserves agentCommand and extraArgs overrides", () => {
         const result = mergeSettings({
-            agentSettings: {
-                pi: { binaryPath: "/usr/local/bin/pi", model: "opus" },
-                "claude-code": { binaryPath: "/usr/bin/claude" },
-            },
+            agentCommand: "/usr/local/bin/pi",
+            extraArgs: "--model opus --provider amazon-bedrock",
         });
-        expect(result.agentSettings.pi).toEqual({
-            binaryPath: "/usr/local/bin/pi",
-            model: "opus",
-        });
-        expect(result.agentSettings["claude-code"]).toEqual({
-            binaryPath: "/usr/bin/claude",
-        });
+        expect(result.agentCommand).toBe("/usr/local/bin/pi");
+        expect(result.extraArgs).toBe("--model opus --provider amazon-bedrock");
         // Other settings should be defaults
         expect(result.logFolder).toBe("llmlogs");
     });
 
-    it("does not lose agentSettings when other fields are overridden", () => {
+    it("does not lose extraArgs when other fields are overridden", () => {
         const result = mergeSettings({
             logFolder: "my-logs",
-            agentSettings: {
-                pi: { model: "sonnet" },
-            },
+            extraArgs: "--model sonnet",
         });
         expect(result.logFolder).toBe("my-logs");
-        expect(result.agentSettings.pi).toEqual({ model: "sonnet" });
+        expect(result.extraArgs).toBe("--model sonnet");
     });
 });
