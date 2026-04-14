@@ -4,6 +4,8 @@ An Obsidian plugin that dispatches lines of text to LLM agents. Cursor on a line
 
 No streaming UI, no chat panels, no embedded AI. Just a line of text → a background process → a status update.
 
+![LLM Tasks Demo](demo.gif)
+
 ## How It Works
 
 Write a task on any line in a note:
@@ -174,6 +176,15 @@ Agent stdout and stderr are captured to log files in your system's temp director
 3. **Continuation**: When dispatching an indented line, the plugin scans upward for sibling/parent lines with `session:` tags. If found, it uses `resumeTemplate` instead of `sessionTemplate` to resume the previous session.
 
 4. **Session IDs**: A UUID is generated at dispatch time and passed to the agent via `sessionTemplate`. This UUID is stored in the note's HTML comment and used for future continuations.
+
+## Disclosure
+
+This plugin:
+
+- **Spawns external processes**: Tasks are executed by spawning LLM agent CLI tools (e.g. `claude`, `pi`) as child processes on your machine. These agents may make network requests to external APIs (e.g. Anthropic) depending on the agent you use.
+- **May access files outside your vault**: The spawned agents operate as general-purpose coding agents. Depending on the task you give them, they may read or modify files anywhere on your system that your user account has access to.
+
+No data is sent to any service by the plugin itself — all network activity originates from the agent process you configure.
 
 ## Development
 
