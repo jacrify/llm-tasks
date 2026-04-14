@@ -113,11 +113,20 @@ export function updateLogNoteOnComplete(
     result = result.replace(/^status: running$/m, `status: ${statusWord}`);
 
     // Add cost to frontmatter if available
-    if (cost && cost.cost != null) {
-        result = result.replace(
-            /^(pid: .+)$/m,
-            `$1\ncost: ${cost.cost.toFixed(4)}`
-        );
+    if (cost) {
+        const costFields: string[] = [];
+        if (cost.cost != null) costFields.push(`cost: ${cost.cost.toFixed(4)}`);
+        if (cost.model) costFields.push(`model: '${cost.model}'`);
+        if (cost.inputTokens != null) costFields.push(`input_tokens: ${cost.inputTokens}`);
+        if (cost.outputTokens != null) costFields.push(`output_tokens: ${cost.outputTokens}`);
+        if (cost.cacheReadTokens) costFields.push(`cache_read_tokens: ${cost.cacheReadTokens}`);
+        if (cost.cacheWriteTokens) costFields.push(`cache_write_tokens: ${cost.cacheWriteTokens}`);
+        if (costFields.length > 0) {
+            result = result.replace(
+                /^(pid: .+)$/m,
+                `$1\n${costFields.join('\n')}`
+            );
+        }
     }
 
     // Update heading
@@ -132,24 +141,8 @@ export function updateLogNoteOnComplete(
         `$1\n**Finished:** ${finished.replace("T", " ").slice(0, 19)}`
     );
 
-    // Build cost line if available
-    let costLine = "";
-    if (cost) {
-        const parts: string[] = [];
-        if (cost.cost != null) parts.push(`$${cost.cost.toFixed(4)}`);
-        if (cost.model) parts.push(cost.model);
-        if (cost.inputTokens != null)
-            parts.push(`${cost.inputTokens.toLocaleString()} in`);
-        if (cost.outputTokens != null)
-            parts.push(`${cost.outputTokens.toLocaleString()} out`);
-        costLine = `**Cost:** ${parts.join(" · ")}\n`;
-    }
-
-    // Replace waiting text with output (and optional cost)
-    const outputSection = costLine
-        ? `${costLine}\n${output}`
-        : output;
-    result = result.replace("_Waiting for completion..._", outputSection);
+    // Replace waiting text with output
+    result = result.replace("_Waiting for completion..._", output);
 
     return result;
 }
