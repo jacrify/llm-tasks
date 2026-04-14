@@ -1,6 +1,6 @@
 # LLM Tasks
 
-An Obsidian plugin that dispatches lines of text to coding agents. Cursor on a line, hotkey, done. The agent runs in the background. Your note updates when it finishes.
+An Obsidian plugin that dispatches lines of text to LLM agents. Cursor on a line, hotkey, done. The agent runs in the background. Your note updates when it finishes.
 
 That's it. No streaming UI, no chat panels, no embedded AI. Just a line of text → a background process → a result.
 
@@ -8,7 +8,7 @@ That's it. No streaming UI, no chat panels, no embedded AI. Just a line of text 
 
 ## Philosophy
 
-This plugin does as little as possible. Your coding agent already knows how to code. Your shell already has your API keys and model preferences configured. The plugin's job is just to:
+This plugin does as little as possible. Your agent already knows what to do. Your shell already has your API keys and model preferences configured. The plugin's job is just to:
 
 1. Take a line of text
 2. Pass it to your agent as a CLI command
@@ -22,24 +22,56 @@ Configuration lives where it belongs — in your shell, your agent's config file
 You write a task on any line in a note:
 
 ```
-Refactor the auth module to use JWT tokens
+Research the history of the Voyager program and summarise key milestones
 ```
 
 Hit your hotkey. The line becomes:
 
 ```
-- ⏳ [[llmlogs/2026-04-14_143022_refactor-the-auth-module|Refactor the auth module to use JWT tokens]]
+- ⏳ [[llmlogs/2026-04-14_143022_research-the-history-of-the-voyager|Research the history of the Voyager program and summarise key milestones]]
 ```
 
 The link points to a log note that tracks the session. When the agent finishes:
 
 ```
-- ✅ [[llmlogs/2026-04-14_143022_refactor-the-auth-module|Refactor the auth module to use JWT tokens]]
+- ✅ [[llmlogs/2026-04-14_143022_research-the-history-of-the-voyager|Research the history of the Voyager program and summarise key milestones]]
 ```
 
 Or if it failed: `- ❌`
 
 <!-- screenshot: completed task with log note open -->
+
+## Log Notes
+
+Every dispatched task creates a log note in your log folder. These are regular Obsidian notes you can search, link to, and query with Dataview.
+
+The frontmatter tracks metadata:
+
+```yaml
+---
+type: llm-task
+status: done
+source: "[[Source Note]]"
+task: 'Research the history of the Voyager program'
+agent: pi
+started: 2026-04-14T14:30:22
+pid: 48291
+cost: 0.0182
+model: 'claude-sonnet-4-20250514'
+input_tokens: 3551
+output_tokens: 842
+---
+```
+
+The body contains:
+
+- **Status and timing** — agent type, start/finish timestamps
+- **Resume command** — a shell command to re-attach to the agent session, so you can continue the conversation in your terminal
+- **Output** — the agent's stdout captured during execution (last 200 lines). This is whatever the agent printed — text responses, tool calls, status messages, errors
+
+The output section captures exactly what the agent wrote to stdout. For a text task this might be a written response. For a coding task it might include file edits, shell commands, and status updates. What you see depends on the agent and its output format.
+
+<!-- screenshot: log note -->
 
 ## Installation
 
@@ -107,7 +139,7 @@ No default hotkeys — assign them in Settings → Hotkeys.
 - **Command** — Override the agent binary. Leave blank to use the default (`pi` or `claude`).
 - **Extra arguments** — Appended to every agent invocation. Use this for model selection, provider, or any other CLI flags.
   ```
-  --model opus --provider amazon-bedrock
+  --model sonnet --provider anthropic
   ```
 - **Working directory** — Where agent processes run: vault root, home directory, or a custom path.
 
@@ -151,30 +183,6 @@ You are working in an Obsidian vault at {{vaultPath}}.
 {{noteContext}}
 ```
 
-## Log Notes
-
-Each dispatched task creates a log note in your log folder with YAML frontmatter:
-
-```yaml
----
-type: llm-task
-status: done
-source: "[[Source Note]]"
-task: 'The task instruction'
-agent: pi
-started: 2026-04-14T14:30:22
-pid: 48291
-cost: 0.0182
-model: 'us.anthropic.claude-opus-4-6-v1'
-input_tokens: 3551
-output_tokens: 16
----
-```
-
-These are regular notes — search them, link to them, query them with Dataview.
-
-<!-- screenshot: log note -->
-
 ## Adding a New Agent
 
 Agents are TypeScript adapter objects. To add one, create a file in `src/agents/` and register it in `src/agents/registry.ts`.
@@ -183,8 +191,8 @@ Here's the full interface:
 
 ```typescript
 interface AgentAdapter {
-    id: string;           // Unique key, used in settings
-    name: string;         // Display name for the dropdown
+    id: string;             // Unique key, used in settings
+    name: string;           // Display name for the dropdown
     defaultCommand: string; // Binary name (user can override in settings)
 
     // Build CLI arguments. The command itself comes from settings.
@@ -266,7 +274,7 @@ Everything else — environment, auth, model selection — is handled by the use
 ```bash
 npm install
 npm run build    # build main.js
-npm test         # run tests (97 tests across 9 files)
+npm test         # run tests
 ```
 
 Tests use vitest with a mock of the Obsidian API. The core logic (task manager, note writer, prompt renderer, agent adapters) is fully unit-tested without needing Obsidian. Integration tests spawn real processes.
