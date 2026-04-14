@@ -4,7 +4,6 @@ export interface PromptVariables {
     noteContext: string;
     vaultPath: string;
     timestamp: string;
-    agentId: string;
     contextLimit: number;
 }
 
@@ -31,12 +30,8 @@ export function truncateContext(context: string, limit: number): string {
 }
 
 export function renderPrompt(customTemplate: string | null | undefined, vars: PromptVariables): string {
-    // Always start with the built-in default prompt.
-    // If a custom prompt file exists, append it.
-    let t = DEFAULT_PROMPT_TEMPLATE;
-    if (customTemplate) {
-        t += '\n\n## Additional Instructions\n\n' + customTemplate;
-    }
+    // If a custom template is provided, use it. Otherwise use the default.
+    const t = customTemplate || DEFAULT_PROMPT_TEMPLATE;
     const truncatedContext = truncateContext(vars.noteContext, vars.contextLimit);
 
     const replacements: Record<string, string> = {
@@ -45,7 +40,6 @@ export function renderPrompt(customTemplate: string | null | undefined, vars: Pr
         '{{noteContext}}': truncatedContext,
         '{{vaultPath}}': vars.vaultPath,
         '{{timestamp}}': vars.timestamp,
-        '{{agentId}}': vars.agentId,
     };
 
     let result = t;

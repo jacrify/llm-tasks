@@ -1,9 +1,7 @@
 import { Plugin, Notice } from "obsidian";
 import { TaskManager, TaskManagerDeps } from "./task-manager";
 import { LlmTasksSettings, DEFAULT_SETTINGS, mergeSettings, LlmTasksSettingTab } from "./settings";
-import { formatTaskLine, parseTaskLine } from "./note-writer";
-import { getAgent } from "./agents/registry";
-import { TaskRecord } from "./agents/types";
+import { formatTaskLine, formatContinuationLine, parseTaskLine, isIndentedLine, getIndent, findParentTaskLine, updateTaskMarker } from "./note-writer";
 
 export default class LlmTasksPlugin extends Plugin {
     settings: LlmTasksSettings = DEFAULT_SETTINGS;
@@ -103,32 +101,40 @@ export default class LlmTasksPlugin extends Plugin {
                         line,
                         noteContent
                     );
-                    const taskLine = formatTaskLine(
-                        record.taskText,
-                        record.tmuxSession,
-                        this.settings.pendingMarker,
-                    );
-                    editor.setLine(line, taskLine);
+
+                    const isContinuation = isIndentedLine(lineText);
+                    if (isContinuation) {
+                        // Continuation: indented line gets llm tag but no marker
+                        const indent = getIndent(lineText);
+                        const contLine = formatContinuationLine(
+                            record.taskText,
+                            record.id,
+                            indent,
+                        );
+                        editor.setLine(line, contLine);
+
+                        // Update parent marker to pending
+                        const lines = editor.getValue().split('\n');
+                        const parentIdx = findParentTaskLine(lines, line);
+                        if (parentIdx !== null) {
+                            const parentLine = lines[parentIdx];
+                            const parsed = parseTaskLine(parentLine);
+                            if (parsed && parsed.marker !== this.settings.pendingMarker) {
+                                const updated = updateTaskMarker(parentLine, parsed.marker, this.settings.pendingMarker);
+                                editor.setLine(parentIdx, updated);
+                            }
+                        }
+                    } else {
+                        const taskLine = formatTaskLine(
+                            record.taskText,
+                            record.id,
+                            this.settings.pendingMarker,
+                        );
+                        editor.setLine(line, taskLine);
+                    }
                 } catch (e: any) {
                     new Notice(e.message);
                 }
-            },
-        });
-
-        // attach (peek/resume — same command)
-        this.addCommand({
-            id: "attach",
-            name: "Attach to task",
-            editorCallback: async (editor: any) => {
-                const cursor = editor.getCursor();
-                const lineText = editor.getLine(cursor.line);
-                const parsed = parseTaskLine(lineText);
-                if (!parsed) {
-                    new Notice("Current line is not a task.");
-                    return;
-                }
-
-                this.taskManager!.attach(parsed.sessionId);
             },
         });
 
@@ -144,7 +150,7 @@ export default class LlmTasksPlugin extends Plugin {
                     new Notice("Current line is not a task.");
                     return;
                 }
-                const task = this.taskManager!.findTaskBySession(parsed.sessionId);
+                const task = this.taskManager!.findTaskById(parsed.sessionId);
                 if (!task) {
                     new Notice("No active task found for this line.");
                     return;

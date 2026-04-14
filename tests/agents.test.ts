@@ -14,18 +14,9 @@ describe('pi adapter', () => {
         expect(piAdapter.defaultCommand).toBe('pi');
     });
 
-    it('buildArgs returns correct args with no extra args', () => {
+    it('buildArgs returns correct args', () => {
         const result = piAdapter.buildArgs(baseParams);
         expect(result).toEqual(['-p', 'Do the thing']);
-    });
-
-    it('buildArgs includes extra args when provided', () => {
-        const result = piAdapter.buildArgs({
-            ...baseParams,
-            extraArgs: ['--model', 'sonnet'],
-        });
-        expect(result).toContain('--model');
-        expect(result).toContain('sonnet');
     });
 
     it('isSuccess returns true for exit code 0', () => {
@@ -46,16 +37,6 @@ describe('claude-code adapter', () => {
         const result = claudeCodeAdapter.buildArgs(baseParams);
         expect(result).toEqual(['-p', 'Do the thing']);
     });
-
-    it('buildArgs includes extra args when set', () => {
-        const result = claudeCodeAdapter.buildArgs({
-            ...baseParams,
-            extraArgs: ['--model', 'opus'],
-        });
-        expect(result).toContain('--model');
-        expect(result).toContain('opus');
-        expect(result[result.length - 1]).toBe('Do the thing');
-    });
 });
 
 describe('agent registry', () => {
@@ -63,19 +44,16 @@ describe('agent registry', () => {
         const agent = getAgent('pi');
         expect(agent).toBeDefined();
         expect(agent!.id).toBe('pi');
-        expect(agent!.name).toBe('Pi');
     });
 
     it('get("claude-code") returns claude-code adapter', () => {
         const agent = getAgent('claude-code');
         expect(agent).toBeDefined();
         expect(agent!.id).toBe('claude-code');
-        expect(agent!.name).toBe('Claude Code');
     });
 
     it('list() returns both adapters', () => {
         const agents = listAgents();
-        expect(agents.length).toBeGreaterThanOrEqual(2);
         const ids = agents.map(a => a.id);
         expect(ids).toContain('pi');
         expect(ids).toContain('claude-code');

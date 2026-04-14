@@ -1,5 +1,5 @@
 import { PluginSettingTab, App, Setting } from "obsidian";
-import { listAgents, getAgent } from "./agents/registry";
+import { DEFAULT_PROMPT_TEMPLATE } from "./prompt";
 
 export interface LlmTasksSettings {
     pollInterval: number;
@@ -7,19 +7,16 @@ export interface LlmTasksSettings {
     notifyOnCompletion: boolean;
     includeNoteContext: boolean;
     contextLimit: number;
-    promptFile: string;
-    agentType: string;
+    promptTemplate: string;
+    agentPreset: string;
     agentCommand: string;
-    extraArgs: string;
-    workingDirectory: "vault" | "home" | "custom";
-    customWorkingDirectory: string;
     pendingMarker: string;
     doneMarker: string;
     failedMarker: string;
-    tmuxCommand: string;
-    openTerminalCommand: string;
     shellPath: string;
     extraPath: string;
+    sessionTemplate: string;
+    resumeTemplate: string;
 }
 
 export const DEFAULT_SETTINGS: LlmTasksSettings = {
@@ -28,37 +25,58 @@ export const DEFAULT_SETTINGS: LlmTasksSettings = {
     notifyOnCompletion: true,
     includeNoteContext: true,
     contextLimit: 10000,
-    promptFile: "llm-tasks-prompt.md",
-    agentType: "pi",
-    agentCommand: "",
-    extraArgs: "",
-    workingDirectory: "vault",
-    customWorkingDirectory: "",
+    promptTemplate: "",
+    agentPreset: "claude",
+    agentCommand: "claude -p --dangerously-skip-permissions",
     pendingMarker: "⏳",
     doneMarker: "✅",
     failedMarker: "❌",
-    tmuxCommand: "tmux",
-    openTerminalCommand: `osascript -e 'tell application "Terminal"' -e 'do script "{cmd}"' -e 'activate' -e 'end tell'`,
     shellPath: "/bin/zsh",
     extraPath: "/opt/homebrew/bin:/usr/local/bin",
+    sessionTemplate: "--session-id {sessionId}",
+    resumeTemplate: "--resume {sessionId}",
 };
 
-const OLD_OPEN_TERMINAL = `osascript -e 'tell application "Terminal" to do script "{cmd}"'`;
+const AGENT_PRESETS: Record<string, { agentCommand: string; sessionTemplate: string; resumeTemplate: string }> = {
+    claude: {
+        agentCommand: 'claude -p --dangerously-skip-permissions',
+        sessionTemplate: '--session-id {sessionId}',
+        resumeTemplate: '--resume {sessionId}',
+    },
+    pi: {
+        agentCommand: 'pi -p',
+        sessionTemplate: '--session /tmp/llm-tasks/sessions/{sessionId}.jsonl',
+        resumeTemplate: '--session /tmp/llm-tasks/sessions/{sessionId}.jsonl',
+    },
+    custom: {
+        agentCommand: '',
+        sessionTemplate: '',
+        resumeTemplate: '',
+    },
+};
 
 export function mergeSettings(loaded: Partial<LlmTasksSettings>): LlmTasksSettings {
-    // Filter out undefined values so they don't overwrite defaults
     const clean: Partial<LlmTasksSettings> = {};
     const validKeys = new Set(Object.keys(DEFAULT_SETTINGS));
     for (const [k, v] of Object.entries(loaded)) {
-        // Drop unknown/stale keys and undefined values
         if (v !== undefined && validKeys.has(k)) {
             (clean as any)[k] = v;
         }
     }
 
-    // Migrate old openTerminalCommand default (missing 'activate')
-    if (clean.openTerminalCommand === OLD_OPEN_TERMINAL) {
-        delete clean.openTerminalCommand;
+    // Migrate old separate agentCommand + extraArgs into single command
+    const old = loaded as any;
+    if (old.extraArgs && clean.agentCommand && !clean.agentCommand.includes(old.extraArgs)) {
+        const base = clean.agentCommand || old.agentCommand || '';
+        // Only migrate if agentCommand looks like old format (no -p flag)
+        if (base && !base.includes(' -p')) {
+            clean.agentCommand = `${base} -p ${old.extraArgs}`.trim();
+        }
+    }
+
+    // Migrate old agentCommand defaults
+    if (clean.agentCommand === 'claude -p' || clean.agentCommand === '' || clean.agentCommand === 'claude' || clean.agentCommand === 'pi') {
+        delete clean.agentCommand;
     }
 
     return { ...DEFAULT_SETTINGS, ...clean };
@@ -81,118 +99,128 @@ export class LlmTasksSettingTab extends PluginSettingTab {
         // --- Agent ---
         containerEl.createEl("h3", { text: "Agent" });
 
-        const agents = listAgents();
         new Setting(containerEl)
-            .setName("Agent type")
-            .setDesc("Which agent to use for task dispatch")
+            .setName("Agent preset")
+            .setDesc("Select an agent to fill in defaults, or choose Custom to configure manually.")
             .addDropdown((dropdown) => {
-                for (const agent of agents) {
-                    dropdown.addOption(agent.id, agent.name);
-                }
-                dropdown.setValue(this.plugin.settings.agentType);
-                dropdown.onChange(async (value: string) => {
-                    this.plugin.settings.agentType = value;
-                    this.plugin.settings.agentCommand = "";
-                    await this.plugin.saveSettings();
-                    this.display();
-                });
+                dropdown
+                    .addOption('claude', 'Claude Code')
+                    .addOption('pi', 'Pi')
+                    .addOption('custom', 'Custom')
+                    .setValue(this.plugin.settings.agentPreset || 'claude')
+                    .onChange(async (value: string) => {
+                        this.plugin.settings.agentPreset = value;
+                        const preset = AGENT_PRESETS[value];
+                        if (preset && value !== 'custom') {
+                            this.plugin.settings.agentCommand = preset.agentCommand;
+                            this.plugin.settings.sessionTemplate = preset.sessionTemplate;
+                            this.plugin.settings.resumeTemplate = preset.resumeTemplate;
+                        }
+                        await this.plugin.saveSettings();
+                        this.display(); // re-render to update text fields
+                    });
             });
-
-        const currentAgent = getAgent(this.plugin.settings.agentType);
-        const defaultCmd = currentAgent?.defaultCommand || "pi";
 
         new Setting(containerEl)
             .setName("Agent command")
-            .setDesc(`Agent binary to run. Leave blank for default: "${defaultCmd}"`)
-            .addText((text) =>
+            .setDesc("Command prefix for the agent. The rendered prompt is appended as the final argument.")
+            .addText((text) => {
+                text.inputEl.style.width = '300px';
+                text.inputEl.style.fontFamily = 'monospace';
                 text
-                    .setPlaceholder(defaultCmd)
+                    .setPlaceholder(DEFAULT_SETTINGS.agentCommand)
                     .setValue(this.plugin.settings.agentCommand)
                     .onChange(async (value: string) => {
                         this.plugin.settings.agentCommand = value;
                         await this.plugin.saveSettings();
-                    })
-            );
-
-        new Setting(containerEl)
-            .setName("Extra arguments")
-            .setDesc("Additional CLI args, e.g. --model opus --provider amazon-bedrock")
-            .addText((text) =>
-                text
-                    .setPlaceholder("--model sonnet")
-                    .setValue(this.plugin.settings.extraArgs)
-                    .onChange(async (value: string) => {
-                        this.plugin.settings.extraArgs = value;
-                        await this.plugin.saveSettings();
-                    })
-            );
-
-        new Setting(containerEl)
-            .setName("Working directory")
-            .setDesc("Where to run agent processes")
-            .addDropdown((dropdown) => {
-                dropdown.addOption("vault", "Vault root");
-                dropdown.addOption("home", "User home");
-                dropdown.addOption("custom", "Custom path");
-                dropdown.setValue(this.plugin.settings.workingDirectory);
-                dropdown.onChange(async (value: string) => {
-                    this.plugin.settings.workingDirectory = value as "vault" | "home" | "custom";
-                    await this.plugin.saveSettings();
-                    this.display();
-                });
+                    });
             });
 
-        if (this.plugin.settings.workingDirectory === "custom") {
-            new Setting(containerEl)
-                .setName("Custom working directory")
-                .setDesc("Absolute path for agent working directory")
-                .addText((text) =>
-                    text
-                        .setValue(this.plugin.settings.customWorkingDirectory)
-                        .onChange(async (value: string) => {
-                            this.plugin.settings.customWorkingDirectory = value;
-                            await this.plugin.saveSettings();
-                        })
-                );
-        }
-
-        // --- Terminal ---
-        containerEl.createEl("h3", { text: "Terminal" });
+        new Setting(containerEl)
+            .setName("Session template")
+            .setDesc("Args to set session identity. Use {sessionId} placeholder. E.g. --session-id {sessionId} for claude, --session /tmp/llm-tasks/{sessionId}.jsonl for pi.")
+            .addText((text) => {
+                text.inputEl.style.width = '300px';
+                text.inputEl.style.fontFamily = 'monospace';
+                text
+                    .setPlaceholder("--session-id {sessionId}")
+                    .setValue(this.plugin.settings.sessionTemplate)
+                    .onChange(async (value: string) => {
+                        this.plugin.settings.sessionTemplate = value;
+                        await this.plugin.saveSettings();
+                    });
+            });
 
         new Setting(containerEl)
-            .setName("tmux command")
-            .setDesc("Path to tmux binary")
-            .addText((text) =>
+            .setName("Resume template")
+            .setDesc("Args to resume a session. Use {sessionId} placeholder. E.g. --resume {sessionId} for claude, --session /tmp/llm-tasks/{sessionId}.jsonl for pi.")
+            .addText((text) => {
+                text.inputEl.style.width = '300px';
+                text.inputEl.style.fontFamily = 'monospace';
                 text
-                    .setPlaceholder("tmux")
-                    .setValue(this.plugin.settings.tmuxCommand)
+                    .setPlaceholder("--resume {sessionId}")
+                    .setValue(this.plugin.settings.resumeTemplate)
                     .onChange(async (value: string) => {
-                        this.plugin.settings.tmuxCommand = value;
+                        this.plugin.settings.resumeTemplate = value;
                         await this.plugin.saveSettings();
-                    })
-            );
+                    });
+            });
 
-        const termSetting = new Setting(containerEl)
-            .setName("Open terminal command")
-            .setDesc('Shell command to open a terminal window. Use {cmd} where the tmux attach command should go.')
+        // --- Prompt ---
+        containerEl.createEl("h3", { text: "Prompt" });
+
+        const promptSetting = new Setting(containerEl)
+            .setName("Prompt template")
+            .setDesc("The system prompt sent to the agent. Use {{task}}, {{sourceNoteName}}, {{noteContext}}, {{vaultPath}}, {{timestamp}} as placeholders.")
             .addTextArea((text) => {
-                text.inputEl.rows = 3;
+                text.inputEl.rows = 12;
                 text.inputEl.cols = 60;
                 text.inputEl.style.fontFamily = 'monospace';
                 text.inputEl.style.fontSize = '12px';
                 text
-                    .setPlaceholder(DEFAULT_SETTINGS.openTerminalCommand)
-                    .setValue(this.plugin.settings.openTerminalCommand)
+                    .setPlaceholder("(default prompt)")
+                    .setValue(this.plugin.settings.promptTemplate || DEFAULT_PROMPT_TEMPLATE)
                     .onChange(async (value: string) => {
-                        this.plugin.settings.openTerminalCommand = value;
+                        // Store empty string if it matches default (so future default changes apply)
+                        this.plugin.settings.promptTemplate = value === DEFAULT_PROMPT_TEMPLATE ? "" : value;
                         await this.plugin.saveSettings();
                     });
             });
-        termSetting.settingEl.addClass('llm-tasks-wide-setting');
+        promptSetting.settingEl.addClass('llm-tasks-wide-setting');
+
+        new Setting(containerEl)
+            .setName("Include note context")
+            .setDesc("Pass the full source note content to the agent via {{noteContext}}")
+            .addToggle((toggle) =>
+                toggle
+                    .setValue(this.plugin.settings.includeNoteContext)
+                    .onChange(async (value: boolean) => {
+                        this.plugin.settings.includeNoteContext = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
+
+        new Setting(containerEl)
+            .setName("Context limit")
+            .setDesc("Max characters of note context to include")
+            .addText((text) =>
+                text
+                    .setValue(String(this.plugin.settings.contextLimit))
+                    .onChange(async (value: string) => {
+                        const num = parseInt(value, 10);
+                        if (!isNaN(num) && num > 0) {
+                            this.plugin.settings.contextLimit = num;
+                            await this.plugin.saveSettings();
+                        }
+                    })
+            );
+
+        // --- Shell ---
+        containerEl.createEl("h3", { text: "Shell" });
 
         new Setting(containerEl)
             .setName("Shell path")
-            .setDesc("Shell used to run tmux commands. Must support -c flag.")
+            .setDesc("Shell used to run agent commands. Must support -c flag.")
             .addText((text) =>
                 text
                     .setPlaceholder(DEFAULT_SETTINGS.shellPath)
@@ -205,7 +233,7 @@ export class LlmTasksSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName("Extra PATH entries")
-            .setDesc("Colon-separated paths prepended to PATH when running tmux. Needed because Obsidian GUI apps have a minimal PATH.")
+            .setDesc("Colon-separated paths prepended to PATH when running agents. Needed because Obsidian GUI apps have a minimal PATH.")
             .addText((text) =>
                 text
                     .setPlaceholder(DEFAULT_SETTINGS.extraPath)
@@ -218,18 +246,6 @@ export class LlmTasksSettingTab extends PluginSettingTab {
 
         // --- General ---
         containerEl.createEl("h3", { text: "General" });
-
-        new Setting(containerEl)
-            .setName("Prompt file")
-            .setDesc("Vault-relative path to the prompt template")
-            .addText((text) =>
-                text
-                    .setValue(this.plugin.settings.promptFile)
-                    .onChange(async (value: string) => {
-                        this.plugin.settings.promptFile = value;
-                        await this.plugin.saveSettings();
-                    })
-            );
 
         new Setting(containerEl)
             .setName("Poll interval")
@@ -270,33 +286,6 @@ export class LlmTasksSettingTab extends PluginSettingTab {
                     .onChange(async (value: boolean) => {
                         this.plugin.settings.notifyOnCompletion = value;
                         await this.plugin.saveSettings();
-                    })
-            );
-
-        new Setting(containerEl)
-            .setName("Include note context")
-            .setDesc("Pass full source note content to the agent")
-            .addToggle((toggle) =>
-                toggle
-                    .setValue(this.plugin.settings.includeNoteContext)
-                    .onChange(async (value: boolean) => {
-                        this.plugin.settings.includeNoteContext = value;
-                        await this.plugin.saveSettings();
-                    })
-            );
-
-        new Setting(containerEl)
-            .setName("Context limit")
-            .setDesc("Max characters of note context to include")
-            .addText((text) =>
-                text
-                    .setValue(String(this.plugin.settings.contextLimit))
-                    .onChange(async (value: string) => {
-                        const num = parseInt(value, 10);
-                        if (!isNaN(num) && num > 0) {
-                            this.plugin.settings.contextLimit = num;
-                            await this.plugin.saveSettings();
-                        }
                     })
             );
     }

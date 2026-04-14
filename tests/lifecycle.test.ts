@@ -2,37 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import { execSync } from 'node:child_process';
 import { TaskManager, TaskManagerDeps } from '../src/task-manager';
 import { DEFAULT_SETTINGS, LlmTasksSettings } from '../src/settings';
-import { registerAgent } from '../src/agents/registry';
-import { AgentAdapter } from '../src/agents/types';
 import { formatTaskLine, updateTaskMarker, parseTaskLine } from '../src/note-writer';
-
-// Test agent adapter that runs shell commands
-const testAdapter: AgentAdapter = {
-    id: 'test-lifecycle',
-    name: 'Test Lifecycle',
-    defaultCommand: '/bin/sh',
-    buildArgs({ task }) {
-        return ['-c', task];
-    },
-    isSuccess: (code) => code === 0,
-};
-
-// Non-existent binary adapter
-const badBinaryAdapter: AgentAdapter = {
-    id: 'test-bad-binary',
-    name: 'Bad Binary',
-    defaultCommand: '/nonexistent/binary/that/does/not/exist',
-    buildArgs({ task }) {
-        return [task];
-    },
-    isSuccess: (code) => code === 0,
-};
-
-registerAgent(testAdapter);
-registerAgent(badBinaryAdapter);
 
 let testDir: string;
 let vaultDir: string;
@@ -68,21 +40,21 @@ function createDeps(): TaskManagerDeps {
 }
 
 function createSettings(overrides?: Partial<LlmTasksSettings>): LlmTasksSettings {
-    return { ...DEFAULT_SETTINGS, agentType: 'test-lifecycle', ...overrides };
+    return { ...DEFAULT_SETTINGS, agentCommand: '/bin/sh -c', promptTemplate: '{{task}}', sessionTemplate: '', resumeTemplate: '', ...overrides };
 }
 
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function killTmuxSession(session: string): void {
+function killProcess(pid: number): void {
     try {
-        execSync(`tmux kill-session -t '${session}'`, { stdio: 'pipe' });
+        process.kill(pid, 'SIGTERM');
     } catch { /* already dead */ }
 }
 
 describe('Full Lifecycle Integration', () => {
-    let createdSessions: string[] = [];
+    let createdPids: number[] = [];
 
     beforeEach(() => {
         testDir = path.join(os.tmpdir(), `llm-tasks-lifecycle-${Date.now()}`);
@@ -92,12 +64,12 @@ describe('Full Lifecycle Integration', () => {
         vaultFiles = new Map();
         notifications = [];
         taskCountChanges = [];
-        createdSessions = [];
+        createdPids = [];
     });
 
     afterEach(() => {
-        for (const s of createdSessions) {
-            killTmuxSession(s);
+        for (const pid of createdPids) {
+            killProcess(pid);
         }
         try {
             fs.rmSync(testDir, { recursive: true, force: true });
@@ -115,15 +87,14 @@ describe('Full Lifecycle Integration', () => {
 
         // 1. Dispatch
         const record = await manager.dispatch('echo done', 'note.md', 1, sourceContent);
-        createdSessions.push(record.tmuxSession);
+        createdPids.push(record.pid);
         expect(record.taskText).toBe('echo done');
-        expect(record.agentId).toBe('test-lifecycle');
         expect(manager.getActiveTaskCount()).toBe(1);
 
         // Simulate what main.ts does: rewrite source line
         const taskLine = formatTaskLine(
             record.taskText,
-            record.tmuxSession,
+            record.id,
             settings.pendingMarker,
         );
         const updatedSource = sourceContent.split('\n');
@@ -156,19 +127,22 @@ describe('Full Lifecycle Integration', () => {
         await manager.cleanup();
     });
 
-    it('dispatch with non-existent binary fails via poll (command fails inside tmux)', async () => {
+    it('dispatch with non-existent binary fails via poll', async () => {
         const deps = createDeps();
-        const settings = createSettings({ agentType: 'test-bad-binary', notifyOnCompletion: true });
+        const settings = createSettings({
+            agentCommand: '/nonexistent/binary',
+            notifyOnCompletion: true,
+        });
         const sourceContent = 'do something';
         vaultFiles.set('note.md', sourceContent);
 
         const manager = new TaskManager(deps, settings);
 
         const record = await manager.dispatch('do something', 'note.md', 0, sourceContent);
-        createdSessions.push(record.tmuxSession);
+        createdPids.push(record.pid);
 
         // Rewrite source line
-        const taskLine = formatTaskLine(record.taskText, record.tmuxSession, settings.pendingMarker);
+        const taskLine = formatTaskLine(record.taskText, record.id, settings.pendingMarker);
         vaultFiles.set('note.md', taskLine);
 
         // Poll to detect failure
@@ -185,21 +159,22 @@ describe('Full Lifecycle Integration', () => {
         await manager.cleanup();
     });
 
-    it('failed task gets ❌ marker after non-zero exit', async () => {
+    it('failed task gets ❌ marker after non-zero exit with no output', async () => {
         const deps = createDeps();
         const settings = createSettings({ notifyOnCompletion: true });
 
+        // Use a command that produces no output and exits with error
         const sourceContent = 'exit 1';
         vaultFiles.set('note.md', sourceContent);
 
         const manager = new TaskManager(deps, settings);
 
         const record = await manager.dispatch('exit 1', 'note.md', 0, sourceContent);
-        createdSessions.push(record.tmuxSession);
+        createdPids.push(record.pid);
 
         const taskLine = formatTaskLine(
             record.taskText,
-            record.tmuxSession,
+            record.id,
             settings.pendingMarker,
         );
         vaultFiles.set('note.md', taskLine);
@@ -215,21 +190,6 @@ describe('Full Lifecycle Integration', () => {
         expect(notifications.some(n => n.includes('failed'))).toBe(true);
 
         manager.stopPolling();
-        await manager.cleanup();
-    });
-
-    it('attach does not throw for a valid session', async () => {
-        const deps = createDeps();
-        // Override terminal command to a no-op so we don't actually open Terminal.app
-        const settings = createSettings({ openTerminalCommand: 'echo {cmd}' });
-        const manager = new TaskManager(deps, settings);
-
-        const record = await manager.dispatch('sleep 10', 'note.md', 0, 'content');
-        createdSessions.push(record.tmuxSession);
-
-        // Should not throw
-        expect(() => manager.attach(record.tmuxSession)).not.toThrow();
-
         await manager.cleanup();
     });
 });

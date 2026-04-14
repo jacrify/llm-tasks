@@ -1,9 +1,11 @@
 import * as os from 'node:os';
-import { execSync, spawn } from 'node:child_process';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
+import * as crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { TaskRecord } from './agents/types';
-import { getAgent } from './agents/registry';
 import { renderPrompt } from './prompt';
-import { generateTaskId, updateTaskMarker } from './note-writer';
+import { generateTaskId, updateTaskMarker, updateTaskSession, findResumeSession, findParentTaskLine, isIndentedLine, getIndent, parseTaskLine } from './note-writer';
 import { LlmTasksSettings } from './settings';
 
 export interface TaskManagerDeps {
@@ -24,6 +26,7 @@ export class TaskManager {
     private deps: TaskManagerDeps;
     private settings: LlmTasksSettings;
     private activeTasks: Map<string, TaskRecord> = new Map();
+    private exitCodes: Map<string, number> = new Map();
     private pollTimer: ReturnType<typeof setInterval> | null = null;
 
     constructor(deps: TaskManagerDeps, settings: LlmTasksSettings) {
@@ -60,116 +63,125 @@ export class TaskManager {
             throw new Error(`Max concurrent tasks reached (${this.settings.maxConcurrent}). Cancel or wait for a task to finish.`);
         }
 
-        // Strip leading list marker ("- ") if present
+        // Detect continuation context
+        const lines = noteContent.split('\n');
+        const isContinuation = isIndentedLine(taskText);
+        let resumeSessionId: string | null = null;
+        let parentLine: number | null = null;
+
+        if (isContinuation) {
+            parentLine = findParentTaskLine(lines, sourceLine);
+
+            if (parentLine !== null) {
+                // Check if parent is still running
+                const parentParsed = parseTaskLine(lines[parentLine]);
+                if (parentParsed && parentParsed.marker === this.settings.pendingMarker) {
+                    // Check if parent is actually an active task
+                    const parentTask = this.findTaskById(parentParsed.sessionId);
+                    if (parentTask) {
+                        throw new Error('Parent task is still running.');
+                    }
+                }
+            }
+
+            // Find session to resume from
+            resumeSessionId = findResumeSession(lines, sourceLine);
+        }
+
+        // Strip leading whitespace and list marker ("- ") if present
         const taskBody = trimmed.startsWith('- ') ? trimmed.slice(2) : trimmed;
 
         const now = new Date();
         const id = generateTaskId(taskBody, now);
         const started = now.toISOString();
-        const tmuxSession = `llm-${id}`;
 
         // Render prompt
         const sourceNoteName = sourceFile.replace(/\.md$/, '').split('/').pop() || sourceFile;
-        const promptTemplate = await this.deps.readFile(this.settings.promptFile);
+        const promptTemplate = this.settings.promptTemplate || null;
         const renderedPrompt = renderPrompt(promptTemplate, {
             task: taskBody,
             sourceNoteName,
             noteContext: this.settings.includeNoteContext ? noteContent : '',
             vaultPath: this.deps.getVaultPath(),
             timestamp: started,
-            agentId: this.settings.agentType,
             contextLimit: this.settings.contextLimit,
         });
 
-        // Get agent adapter
-        const agent = getAgent(this.settings.agentType);
-        if (!agent) {
-            throw new Error(`Agent "${this.settings.agentType}" not found`);
-        }
-
-        // Resolve working directory
-        const workingDirectory = this.resolveWorkingDirectory();
+        // Generate session UUID for this task
+        const agentSessionId = crypto.randomUUID();
 
         // Build agent command
-        const command = this.settings.agentCommand || agent.defaultCommand;
-        const extraArgs = this.settings.extraArgs
-            ? this.settings.extraArgs.split(/\s+/).filter(Boolean)
-            : [];
-        const args = agent.buildArgs({ renderedPrompt, task: taskBody, extraArgs });
+        const baseCmd = this.settings.agentCommand || 'claude -p';
+        const cmdParts = baseCmd.split(/\s+/).filter(Boolean);
 
-        // Build the full shell command to run inside tmux
-        const escapedArgs = args.map(a => this.shellEscape(a));
-        const agentCmd = `${this.shellEscape(command)} ${escapedArgs.join(' ')}`;
-
-        // Source shell profiles so agent gets PATH, API keys, etc.
-        const home = os.homedir();
-        const sourceProfiles = [
-            `[ -f /etc/zprofile ] && . /etc/zprofile`,
-            `[ -f '${home}/.zprofile' ] && . '${home}/.zprofile'`,
-            `[ -f '${home}/.zshrc' ] && . '${home}/.zshrc'`,
-        ].join('; ');
-
-        const tmux = this.settings.tmuxCommand || 'tmux';
-
-        // Create tmux session with remain-on-exit so scrollback survives
-        // Use -d to run detached, -x/-y for reasonable default size
-        const tmuxCmd = [
-            this.shellEscape(tmux),
-            'new-session', '-d',
-            '-s', this.shellEscape(tmuxSession),
-            '-x', '200', '-y', '50',
-            this.shellEscape(`${sourceProfiles}; cd ${this.shellEscape(workingDirectory)}; ${agentCmd}`),
-        ].join(' ');
-
-        // Set remain-on-exit before creating the session won't work;
-        // we set it after creation
-        const setupCmd = `${tmuxCmd} && ${this.shellEscape(tmux)} set-option -t ${this.shellEscape(tmuxSession)} remain-on-exit on`;
-
-        try {
-            this.execLogin(setupCmd, { timeout: 10000 });
-        } catch (err: any) {
-            const msg = err.stderr?.toString() || err.message;
-            throw new Error(`Failed to create tmux session: ${msg}`);
+        // Append session/resume args
+        if (resumeSessionId && this.settings.resumeTemplate) {
+            // Resuming an existing session — use resume template only
+            const resumeArgs = this.settings.resumeTemplate.replace(/\{sessionId\}/g, resumeSessionId);
+            cmdParts.push(...resumeArgs.split(/\s+/).filter(Boolean));
+            // The agentSessionId for this continuation is the one we're resuming
+            // (we still generate a new UUID for the task record, but the agent session is the same)
+        } else if (this.settings.sessionTemplate) {
+            // Fresh session — set session identity
+            const sessionArgs = this.settings.sessionTemplate.replace(/\{sessionId\}/g, agentSessionId);
+            cmdParts.push(...sessionArgs.split(/\s+/).filter(Boolean));
         }
 
-        // Create task record
-        const record: TaskRecord = {
-            id,
-            tmuxSession,
-            sourceFile,
-            sourceLine,
-            taskText: taskBody,
-            agentId: agent.id,
-            started,
-        };
+        const agentCmd = cmdParts.map(a => this.shellEscape(a)).join(' ') + ' ' + this.shellEscape(renderedPrompt);
 
-        this.activeTasks.set(id, record);
+        // Set up log file
+        const logDir = path.join(os.tmpdir(), 'llm-tasks');
+        fs.mkdirSync(logDir, { recursive: true });
+        const logFile = path.join(logDir, `${id}.log`);
+        const logFd = fs.openSync(logFile, 'w');
 
-        // Persist
-        await this.persistTasks();
-        this.deps.onTaskCountChanged(this.activeTasks.size);
+        const shellPath = this.settings.shellPath || '/bin/zsh';
 
-        return record;
-    }
+        try {
+            const child = spawn(shellPath, ['-l', '-i', '-c', agentCmd], {
+                detached: true,
+                stdio: ['ignore', logFd, logFd],
+                env: this.buildEnv(),
+                cwd: this.deps.getVaultPath(),
+            });
 
-    /**
-     * Attach to a tmux session — opens a terminal window.
-     * Works whether the agent is running (live view) or finished (scrollback).
-     */
-    attach(tmuxSession: string): void {
-        const tmux = this.settings.tmuxCommand || 'tmux';
-        // Session names are generated by us (alphanumeric + dashes + underscores)
-        // so no shell escaping needed. Escaping would break quoting in the
-        // osascript template.
-        const attachCmd = `${tmux} attach -t ${tmuxSession}`;
-        const terminalTemplate = this.settings.openTerminalCommand || DEFAULT_OPEN_TERMINAL;
-        const fullCmd = terminalTemplate.replace('{cmd}', attachCmd);
+            const pid = child.pid;
+            if (!pid) {
+                fs.closeSync(logFd);
+                throw new Error('Failed to spawn child process: no PID returned');
+            }
 
-        spawn(this.settings.shellPath || '/bin/zsh', ['-c', fullCmd], {
-            detached: true,
-            stdio: 'ignore',
-            env: this.buildEnv(),
-        }).unref();
+            child.on('exit', (code) => {
+                this.exitCodes.set(id, code ?? 1);
+            });
+            child.unref();
+            fs.closeSync(logFd);
+
+            // Create task record
+            const record: TaskRecord = {
+                id,
+                pid,
+                logFile,
+                sourceFile,
+                sourceLine,
+                taskText: taskBody,
+                started,
+                agentSessionId,
+                parentTaskLine: parentLine ?? undefined,
+                resumedFromSession: resumeSessionId ?? undefined,
+            };
+
+            this.activeTasks.set(id, record);
+
+            // Persist
+            await this.persistTasks();
+            this.deps.onTaskCountChanged(this.activeTasks.size);
+
+            return record;
+        } catch (err: any) {
+            try { fs.closeSync(logFd); } catch { /* already closed */ }
+            throw new Error(`Failed to spawn agent process: ${err.message}`);
+        }
     }
 
     startPolling(): void {
@@ -195,9 +207,7 @@ export class TaskManager {
         const completedTasks: string[] = [];
 
         for (const [id, record] of this.activeTasks) {
-            const status = this.getTmuxPaneStatus(record.tmuxSession);
-            if (status !== null) {
-                // Pane is dead — agent exited
+            if (!this.isProcessAlive(record.pid)) {
                 completedTasks.push(id);
             }
         }
@@ -208,39 +218,11 @@ export class TaskManager {
     }
 
     /**
-     * Check if a tmux session's pane has exited.
-     * Returns the exit code if dead, or null if still running.
+     * Check if a process is still alive by sending signal 0.
      */
-    private getTmuxPaneStatus(tmuxSession: string): number | null {
-        const tmux = this.settings.tmuxCommand || 'tmux';
+    private isProcessAlive(pid: number): boolean {
         try {
-            const output = this.execLogin(
-                `${this.shellEscape(tmux)} list-panes -t ${this.shellEscape(tmuxSession)} -F '#{pane_dead} #{pane_dead_status}'`,
-                { timeout: 5000 }
-            ).trim();
-
-            // Output is like "1 0" (dead, exit code 0) or "0 " (alive)
-            const parts = output.split(' ');
-            if (parts[0] === '1') {
-                return parseInt(parts[1] || '1', 10);
-            }
-            return null;
-        } catch {
-            // Session doesn't exist — treat as dead with failure
-            return 1;
-        }
-    }
-
-    /**
-     * Check if a tmux session exists at all.
-     */
-    private tmuxSessionExists(tmuxSession: string): boolean {
-        const tmux = this.settings.tmuxCommand || 'tmux';
-        try {
-            this.execLogin(
-                `${this.shellEscape(tmux)} has-session -t ${this.shellEscape(tmuxSession)}`,
-                { timeout: 5000 }
-            );
+            process.kill(pid, 0);
             return true;
         } catch {
             return false;
@@ -251,21 +233,69 @@ export class TaskManager {
         const record = this.activeTasks.get(taskId);
         if (!record) return;
 
-        const agent = getAgent(record.agentId);
-        const exitCode = this.getTmuxPaneStatus(record.tmuxSession);
-        const success = agent ? agent.isSuccess(exitCode ?? 1) : exitCode === 0;
+        // Check exit code if we captured it (same process lifetime)
+        const exitCode = this.exitCodes.get(taskId);
+        let success: boolean;
+        if (exitCode !== undefined) {
+            success = exitCode === 0;
+            this.exitCodes.delete(taskId);
+        } else {
+            // Process was from a previous Obsidian session (restored from persisted data).
+            // We can't know exit code, so check log file heuristic.
+            try {
+                const logContent = fs.readFileSync(record.logFile, 'utf-8');
+                success = logContent.trim().length > 0;
+            } catch {
+                success = false;
+            }
+        }
 
-        // Update source note line
+        // Session ID is already set at dispatch time (pre-generated UUID)
+        const agentSessionId = record.agentSessionId;
+
+        // Update source note
         const sourceContent = await this.deps.readFile(record.sourceFile);
         if (sourceContent) {
             const lines = sourceContent.split('\n');
             const newMarker = success ? this.settings.doneMarker : this.settings.failedMarker;
+
+            // Find the task's line and update session tag
             for (let i = 0; i < lines.length; i++) {
-                if (lines[i].includes(`<!-- llm:${record.tmuxSession} -->`)) {
-                    lines[i] = updateTaskMarker(lines[i], this.settings.pendingMarker, newMarker);
+                if (lines[i].includes(`<!-- llm:${record.id} -->`)) {
+                    // Update session tag on the task line
+                    if (agentSessionId) {
+                        lines[i] = updateTaskSession(lines[i], agentSessionId);
+                    }
+                    break;
+                }
+                // Also match lines that already have a session tag
+                if (lines[i].includes(`<!-- llm:${record.id} session:`)) {
+                    if (agentSessionId) {
+                        lines[i] = updateTaskSession(lines[i], agentSessionId);
+                    }
                     break;
                 }
             }
+
+            if (record.parentTaskLine !== undefined) {
+                // This is a continuation — update the parent's marker
+                const parentLine = record.parentTaskLine;
+                if (parentLine >= 0 && parentLine < lines.length) {
+                    const parentParsed = parseTaskLine(lines[parentLine]);
+                    if (parentParsed) {
+                        lines[parentLine] = updateTaskMarker(lines[parentLine], this.settings.pendingMarker, newMarker);
+                    }
+                }
+            } else {
+                // Normal task — update its own marker
+                for (let i = 0; i < lines.length; i++) {
+                    if (lines[i].includes(`<!-- llm:${record.id}`)) {
+                        lines[i] = updateTaskMarker(lines[i], this.settings.pendingMarker, newMarker);
+                        break;
+                    }
+                }
+            }
+
             await this.deps.writeFile(record.sourceFile, lines.join('\n'));
         }
 
@@ -288,15 +318,11 @@ export class TaskManager {
             throw new Error(`No active task with ID "${taskId}"`);
         }
 
-        // Kill the tmux session
-        const tmux = this.settings.tmuxCommand || 'tmux';
+        // Kill the process
         try {
-            this.execLogin(
-                `${this.shellEscape(tmux)} kill-session -t ${this.shellEscape(record.tmuxSession)}`,
-                { timeout: 5000 }
-            );
+            process.kill(record.pid, 'SIGTERM');
         } catch {
-            // Session may already be dead
+            // Process may already be dead
         }
 
         // Update source note
@@ -304,7 +330,7 @@ export class TaskManager {
         if (sourceContent) {
             const lines = sourceContent.split('\n');
             for (let i = 0; i < lines.length; i++) {
-                if (lines[i].includes(`<!-- llm:${record.tmuxSession} -->`)) {
+                if (lines[i].includes(`<!-- llm:${record.id} -->`)) {
                     lines[i] = updateTaskMarker(lines[i], this.settings.pendingMarker, this.settings.failedMarker);
                     break;
                 }
@@ -335,13 +361,9 @@ export class TaskManager {
 
     async cleanup(): Promise<void> {
         this.stopPolling();
-        const tmux = this.settings.tmuxCommand || 'tmux';
         for (const [_id, record] of this.activeTasks) {
             try {
-                this.execLogin(
-                    `${this.shellEscape(tmux)} kill-session -t ${this.shellEscape(record.tmuxSession)}`,
-                    { timeout: 5000 }
-                );
+                process.kill(record.pid, 'SIGTERM');
             } catch {
                 // already dead
             }
@@ -356,18 +378,18 @@ export class TaskManager {
         let changed = false;
 
         for (const record of tasks) {
-            if (this.tmuxSessionExists(record.tmuxSession)) {
-                // Session still exists — keep tracking it
+            if (this.isProcessAlive(record.pid)) {
+                // Process still running — keep tracking it
                 this.activeTasks.set(record.id, record);
             } else {
-                // Session gone — mark as failed
+                // Process gone — mark as failed
                 changed = true;
 
                 const sourceContent = await this.deps.readFile(record.sourceFile);
                 if (sourceContent) {
                     const lines = sourceContent.split('\n');
                     for (let i = 0; i < lines.length; i++) {
-                        if (lines[i].includes(`<!-- llm:${record.tmuxSession} -->`)) {
+                        if (lines[i].includes(`<!-- llm:${record.id} -->`)) {
                             lines[i] = updateTaskMarker(lines[i], this.settings.pendingMarker, this.settings.failedMarker);
                             break;
                         }
@@ -385,11 +407,8 @@ export class TaskManager {
         this.deps.onTaskCountChanged(this.activeTasks.size);
     }
 
-    findTaskBySession(tmuxSession: string): TaskRecord | undefined {
-        for (const record of this.activeTasks.values()) {
-            if (record.tmuxSession === tmuxSession) return record;
-        }
-        return undefined;
+    findTaskById(id: string): TaskRecord | undefined {
+        return this.activeTasks.get(id);
     }
 
     private buildEnv(): Record<string, string> {
@@ -400,21 +419,6 @@ export class TaskManager {
             HOME: os.homedir(),
             PATH: extraPath ? `${extraPath}:${currentPath}` : currentPath,
         };
-    }
-
-    /**
-     * Run a command through the configured shell so PATH includes
-     * user-configured extra paths (Homebrew, nix, etc.).
-     */
-    private execLogin(cmd: string, opts?: { timeout?: number }): string {
-        const shell = this.settings.shellPath || '/bin/zsh';
-        return execSync(cmd, {
-            encoding: 'utf-8',
-            shell,
-            stdio: ['pipe', 'pipe', 'pipe'],
-            timeout: opts?.timeout ?? 10000,
-            env: this.buildEnv(),
-        });
     }
 
     private shellEscape(arg: string): string {
@@ -432,18 +436,6 @@ export class TaskManager {
         return false;
     }
 
-    private resolveWorkingDirectory(): string {
-        switch (this.settings.workingDirectory) {
-            case 'home':
-                return os.homedir();
-            case 'custom':
-                return this.settings.customWorkingDirectory || this.deps.getVaultPath();
-            case 'vault':
-            default:
-                return this.deps.getVaultPath();
-        }
-    }
-
     private async persistTasks(): Promise<void> {
         const data: PersistedData = {
             activeTasks: Array.from(this.activeTasks.values()),
@@ -451,5 +443,3 @@ export class TaskManager {
         await this.deps.saveData(data);
     }
 }
-
-const DEFAULT_OPEN_TERMINAL = `osascript -e 'tell application "Terminal"' -e 'do script "{cmd}"' -e 'activate' -e 'end tell'`;

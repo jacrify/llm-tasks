@@ -1,31 +1,20 @@
-export interface AgentAdapter {
-    /** Unique identifier */
-    id: string;
-    /** Display name for settings dropdown */
-    name: string;
-    /** Default binary/command name */
-    defaultCommand: string;
-
-    /**
-     * Build the full args array for spawning.
-     * The command itself comes from settings (user can override).
-     */
-    buildArgs(params: {
-        renderedPrompt: string;
-        task: string;
-        extraArgs: string[];
-    }): string[];
-
-    /** Determine if task succeeded. Default: exit code === 0. */
-    isSuccess(exitCode: number): boolean;
-}
-
 export interface TaskRecord {
     id: string;
-    tmuxSession: string;
+    pid: number;
+    logFile: string;
     sourceFile: string;
     sourceLine: number;
     taskText: string;
-    agentId: string;
     started: string;
+    agentSessionId?: string;
+    parentTaskLine?: number;
+    resumedFromSession?: string;
+}
+
+export interface AgentAdapter {
+    id: string;
+    name: string;
+    defaultCommand: string;
+    buildArgs(opts: { renderedPrompt: string; extraArgs: string[] }): string[];
+    isSuccess(exitCode: number): boolean;
 }

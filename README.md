@@ -2,120 +2,112 @@
 
 An Obsidian plugin that dispatches lines of text to LLM agents. Cursor on a line, hotkey, done. The agent runs in the background. Your note updates when it finishes.
 
-That's it. No streaming UI, no chat panels, no embedded AI. Just a line of text → a background process → a result.
-
-<!-- screenshot: dispatching a task -->
-
-## Philosophy
-
-This plugin does as little as possible. Your agent already knows what to do, and has your API keys and model preferences configured. The plugin's job is just to:
-
-1. Take a line of text
-2. Pass it to your agent as a CLI command
-3. Track whether it's running, done, or failed
-4. Show you the output when you want it
-
-Configuration lives where it belongs — in your shell, your agent's config files, your environment variables. The plugin doesn't try to manage API keys, model selection, or provider configuration. If your agent works from the terminal, it works from here.
+No streaming UI, no chat panels, no embedded AI. Just a line of text → a background process → a status update.
 
 ## How It Works
 
-You write a task on any line in a note:
+Write a task on any line in a note:
 
 ```
-Research the history of the Voyager program and summarise key milestones
+Refactor the auth module to use dependency injection
 ```
 
 Hit your hotkey. The line becomes:
 
 ```
-- ⏳ [[llmlogs/2026-04-14_143022_research-the-history-of-the-voyager|Research the history of the Voyager program and summarise key milestones]]
+- ⏳ Refactor the auth module to use dependency injection <!-- llm:2026-04-14_143022_refactor-the-auth-module session:a1b2c3d4-... -->
 ```
 
-The link points to a log note that tracks the session. When the agent finishes:
+The `<!-- ... -->` comment is invisible in Obsidian reading mode. When the agent finishes:
 
 ```
-- ✅ [[llmlogs/2026-04-14_143022_research-the-history-of-the-voyager|Research the history of the Voyager program and summarise key milestones]]
+- ✅ Refactor the auth module to use dependency injection <!-- llm:2026-04-14_143022_refactor-the-auth-module session:a1b2c3d4-... -->
 ```
 
 Or if it failed: `- ❌`
 
-<!-- screenshot: completed task with log note open -->
+### Continuing a Conversation
 
-## Log Notes
+Indent a follow-up line under a completed task and dispatch it:
 
-Every dispatched task creates a log note in your log folder. These are regular Obsidian notes you can search, link to, and query with Dataview.
-
-The frontmatter tracks metadata:
-
-```yaml
----
-type: llm-task
-status: done
-source: "[[Source Note]]"
-task: 'Research the history of the Voyager program'
-agent: pi
-started: 2026-04-14T14:30:22
-pid: 48291
-cost: 0.0182
-model: 'claude-sonnet-4-20250514'
-input_tokens: 3551
-output_tokens: 842
----
+```
+- ✅ Refactor the auth module <!-- llm:... session:a1b2c3d4 -->
+  - Now add tests for it
 ```
 
-The body contains:
+The plugin detects this is a continuation, finds the previous session ID, and resumes the conversation. The parent task's marker reflects the latest run:
 
-- **Status and timing** — agent type, start/finish timestamps
-- **Resume command** — a shell command to re-attach to the agent session, so you can continue the conversation in your terminal
-- **Output** — the agent's stdout captured during execution (last 200 lines). This is whatever the agent printed — text responses, tool calls, status messages, errors
+```
+- ⏳ Refactor the auth module <!-- llm:... session:a1b2c3d4 -->
+  - Now add tests for it <!-- llm:... session:e5f6g7h8 -->
+```
 
-The output section captures exactly what the agent wrote to stdout. For a text task this might be a written response. For a coding task it might include file edits, shell commands, and status updates. What you see depends on the agent and its output format.
+Multiple follow-ups stay at the same indent level — no deeper nesting:
 
-<!-- screenshot: log note -->
+```
+- ✅ Refactor the auth module <!-- llm:... session:a1b2c3d4 -->
+  - Now add tests for it <!-- llm:... session:e5f6g7h8 -->
+  - Fix the failing test <!-- llm:... session:i9j0k1l2 -->
+```
+
+## Supported Agents
+
+The plugin works with any CLI agent that supports non-interactive mode. It ships with presets for:
+
+### Claude Code
+
+Default preset. Uses `claude -p --dangerously-skip-permissions`.
+
+**Why `--dangerously-skip-permissions`?** In non-interactive (`-p`) mode, Claude can't prompt you for file write/edit permissions. Without this flag, tool calls are silently denied and the agent fails. Only use this in vaults/directories you trust.
+
+Sessions are tracked via `--session-id` and continued with `--resume`.
+
+### Pi
+
+Uses `pi -p`. Sessions are tracked via `--session <path>` with session files stored in `/tmp/llm-tasks/sessions/`.
+
+### Custom Agents
+
+Select "Custom" from the agent preset dropdown and configure:
+
+- **Agent command** — The full command prefix (e.g. `aider --message`). The rendered prompt is appended as the final argument.
+- **Session template** — Args to set session identity on fresh runs. Use `{sessionId}` placeholder. Leave empty if your agent doesn't support sessions.
+- **Resume template** — Args to resume a session on continuations. Use `{sessionId}` placeholder. Leave empty for fresh sessions on every run.
 
 ## Installation
 
 ### From source
 
 ```bash
-git clone <repo-url> /path/to/llm-tasks
-cd /path/to/llm-tasks
+git clone https://github.com/jacrify/llm-tasks.git
+cd llm-tasks
 npm install
 npm run build
 ```
 
-Then symlink into your vault:
+Symlink into your vault:
 
 ```bash
 mkdir -p /path/to/vault/.obsidian/plugins/llm-tasks
-ln -sf /path/to/llm-tasks/main.js /path/to/vault/.obsidian/plugins/llm-tasks/main.js
-ln -sf /path/to/llm-tasks/manifest.json /path/to/vault/.obsidian/plugins/llm-tasks/manifest.json
-ln -sf /path/to/llm-tasks/styles.css /path/to/vault/.obsidian/plugins/llm-tasks/styles.css
+ln -sf $(pwd)/main.js /path/to/vault/.obsidian/plugins/llm-tasks/main.js
+ln -sf $(pwd)/manifest.json /path/to/vault/.obsidian/plugins/llm-tasks/manifest.json
+ln -sf $(pwd)/styles.css /path/to/vault/.obsidian/plugins/llm-tasks/styles.css
 ```
 
-Enable **LLM Tasks** in Obsidian → Settings → Community Plugins.
-
-Assign a hotkey for **"LLM Tasks: Dispatch task"** in Settings → Hotkeys.
+Enable **LLM Tasks** in Settings → Community Plugins. Assign a hotkey for **"LLM Tasks: Dispatch task"** in Settings → Hotkeys.
 
 ### Shell Environment
 
-The plugin spawns agents through your login shell (`zsh -c`) so they inherit your full environment — PATH, API keys, everything. This means:
+The plugin spawns agents through your login shell (`/bin/zsh -l -i -c '...'`) so they inherit your full environment — PATH, API keys, everything.
 
-**Your agent must work when run non-interactively from a login shell.**
-
-Test it:
+**Your agent must work from a non-interactive login shell.** Test it:
 
 ```bash
-zsh -l -c 'pi -p "say hello"'
-zsh -l -c 'claude -p "say hello"'
+/bin/zsh -l -i -c 'claude -p "say hello"'
+/bin/zsh -l -i -c 'pi -p "say hello"'
 ```
 
-If that works, the plugin will work. If it doesn't, your shell profile (`.zprofile`, `.zshrc`) needs to set up the right environment variables.
-
-Common things to check:
-- API keys must be exported in `.zprofile` or `.zshrc` (not just set in a terminal session)
-- The agent binary must be on PATH (or use the full path in plugin settings)
-- Any auth tokens fetched from keychain must work non-interactively
+If that works, the plugin will work. If not, check that your shell profile (`.zshrc`, `.zprofile`) exports the necessary environment variables and adds agent binaries to PATH.
 
 ## Commands
 
@@ -123,10 +115,6 @@ Common things to check:
 |---------|-------------|
 | **Dispatch task** | Send current line to the agent |
 | **Cancel task** | Kill the agent process for the current line |
-| **Retry task** | Re-dispatch a failed (`❌`) task |
-| **Show log** | Open the log note for the current line's task |
-| **Peek at task** | Show the last 50 lines of agent output |
-| **Show active tasks** | Modal listing all running tasks |
 | **Cancel all tasks** | Kill every running agent |
 
 No default hotkeys — assign them in Settings → Hotkeys.
@@ -135,139 +123,57 @@ No default hotkeys — assign them in Settings → Hotkeys.
 
 ### Agent
 
-- **Agent type** — `Pi` or `Claude Code`. Determines how sessions, cost extraction, and resume commands work.
-- **Command** — Override the agent binary. Leave blank to use the default (`pi` or `claude`).
-- **Extra arguments** — Appended to every agent invocation. Use this for model selection, provider, or any other CLI flags.
-  ```
-  --model sonnet --provider anthropic
-  ```
-- **Working directory** — Where agent processes run: vault root, home directory, or a custom path.
+| Setting | Description |
+|---------|-------------|
+| Agent preset | Claude Code, Pi, or Custom. Sets sensible defaults for all fields below. |
+| Agent command | Full command prefix. The prompt is appended as the final argument. |
+| Session template | Args for fresh sessions. `{sessionId}` is replaced with a generated UUID. |
+| Resume template | Args for continuations. `{sessionId}` is replaced with the previous session's UUID. |
+
+### Prompt
+
+| Setting | Description |
+|---------|-------------|
+| Prompt template | System prompt sent to the agent. Supports `{{task}}`, `{{sourceNoteName}}`, `{{noteContext}}`, `{{vaultPath}}`, `{{timestamp}}` placeholders. |
+| Include note context | Pass the full source note content via `{{noteContext}}`. |
+| Context limit | Max characters of note context to include. |
+
+### Shell
+
+| Setting | Description |
+|---------|-------------|
+| Shell path | Shell used to run agent commands (default: `/bin/zsh`). |
+| Extra PATH entries | Colon-separated paths prepended to PATH. Needed because Obsidian GUI apps have a minimal PATH. |
 
 ### General
 
-- **Log folder** — Where log notes are created (default: `llmlogs`)
-- **Prompt file** — Vault-relative path to a markdown prompt template (default: `llm-tasks-prompt.md`)
-- **Poll interval** — How often to check if tasks are done (default: 5s)
-- **Max concurrent tasks** — Limit simultaneous agents (0 = unlimited)
-- **Notify on completion** — Show an Obsidian notice when a task finishes
-- **Include note context** — Pass the full source note to the agent as context
-- **Context limit** — Max characters of note context to include
-- **Use wikilinks** — Wrap task lines in `[[wikilinks]]` to log notes
+| Setting | Description |
+|---------|-------------|
+| Poll interval | Seconds between checking for task completion (default: 5). |
+| Max concurrent tasks | Limit simultaneous agents. 0 = unlimited. |
+| Notify on completion | Show an Obsidian notice when a task finishes. |
 
-## Prompt Template
+### Task Markers
 
-Create `llm-tasks-prompt.md` in your vault root to customise what gets sent to the agent. If the file doesn't exist, a built-in default is used.
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Pending marker | ⏳ | Shown while the agent is running |
+| Done marker | ✅ | Shown when the agent exits successfully |
+| Failed marker | ❌ | Shown when the agent exits with an error |
 
-Available placeholders:
+## Agent Output
 
-| Placeholder | Value |
-|-------------|-------|
-| `{{task}}` | The task text |
-| `{{sourceNoteName}}` | Name of the source note |
-| `{{noteContext}}` | Full content of the source note |
-| `{{vaultPath}}` | Absolute path to the vault |
-| `{{timestamp}}` | ISO timestamp |
-| `{{agentId}}` | Agent type (pi, claude-code) |
+Agent stdout and stderr are captured to log files in your system's temp directory (`/tmp/llm-tasks/` or equivalent). These are useful for debugging but are not surfaced in the UI.
 
-Example:
+## How It Works (Technical)
 
-```markdown
-You are working in an Obsidian vault at {{vaultPath}}.
+1. **Dispatch**: The plugin spawns the agent as a detached child process via your login shell. Output is piped to a log file. The process PID is tracked.
 
-## Task
+2. **Polling**: A timer checks if each tracked PID is still alive. When a process exits, the plugin reads the exit code and updates the note.
 
-{{task}}
+3. **Continuation**: When dispatching an indented line, the plugin scans upward for sibling/parent lines with `session:` tags. If found, it uses `resumeTemplate` instead of `sessionTemplate` to resume the previous session.
 
-## Source Note: {{sourceNoteName}}
-
-{{noteContext}}
-```
-
-## Adding a New Agent
-
-Agents are TypeScript adapter objects. To add one, create a file in `src/agents/` and register it in `src/agents/registry.ts`.
-
-Here's the full interface:
-
-```typescript
-interface AgentAdapter {
-    id: string;             // Unique key, used in settings
-    name: string;           // Display name for the dropdown
-    defaultCommand: string; // Binary name (user can override in settings)
-
-    // Build CLI arguments. The command itself comes from settings.
-    // renderedPrompt is the full prompt text to send.
-    // sessionFile is a path in tmpdir for session persistence.
-    // extraArgs is what the user put in "Extra arguments" setting, already split.
-    buildArgs(params: {
-        renderedPrompt: string;
-        sessionFile: string;
-        extraArgs: string[];
-    }): string[];
-
-    // Did the task succeed? Usually just exitCode === 0.
-    isSuccess(exitCode: number): boolean;
-
-    // Extract cost/usage after completion. Return null if not supported.
-    // sessionFile is the agent's session file, logFile is stdout capture.
-    extractCost(sessionFile: string, logFile: string): Promise<CostData | null>;
-
-    // Read the last N lines of output for the peek command.
-    peek(logFile: string, lines?: number): Promise<string>;
-
-    // Shell command to resume/attach to the session. Shown in the log note.
-    resumeCommand(sessionFile: string): string;
-}
-```
-
-### Minimal example
-
-```typescript
-// src/agents/aider.ts
-import * as fs from 'node:fs';
-import { AgentAdapter } from './types';
-
-export const aiderAdapter: AgentAdapter = {
-    id: "aider",
-    name: "Aider",
-    defaultCommand: "aider",
-
-    buildArgs({ renderedPrompt, extraArgs }) {
-        const args = ["--message", renderedPrompt];
-        if (extraArgs.length > 0) args.push(...extraArgs);
-        return args;
-    },
-
-    isSuccess: (code) => code === 0,
-    async extractCost() { return null; },
-
-    async peek(logFile, lines = 20) {
-        if (!fs.existsSync(logFile)) return '(no output yet)';
-        const content = fs.readFileSync(logFile, 'utf-8');
-        return content.split('\n').slice(-lines).join('\n');
-    },
-
-    resumeCommand() { return 'aider'; },
-};
-```
-
-Then register it in `src/agents/registry.ts`:
-
-```typescript
-import { aiderAdapter } from './aider';
-registerAgent(aiderAdapter);
-```
-
-Rebuild (`npm run build`), reload the plugin, and select your agent in settings.
-
-### What you need to implement
-
-- **`buildArgs`** — How your agent takes a prompt from the CLI. Most agents have a `-p` or `--message` flag.
-- **`extractCost`** — Optional. Parse your agent's session/log files for usage data. Return `null` if you don't care about cost tracking.
-- **`resumeCommand`** — What shell command would resume this session. Shown in the log note for convenience.
-- **`peek`** — Usually just tail the log file. Only override if your agent writes structured output (like Claude's JSON mode).
-
-Everything else — environment, auth, model selection — is handled by the user's shell and the "Extra arguments" setting.
+4. **Session IDs**: A UUID is generated at dispatch time and passed to the agent via `sessionTemplate`. This UUID is stored in the note's HTML comment and used for future continuations.
 
 ## Development
 
@@ -277,4 +183,4 @@ npm run build    # build main.js
 npm test         # run tests
 ```
 
-Tests use vitest with a mock of the Obsidian API. The core logic (task manager, note writer, prompt renderer, agent adapters) is fully unit-tested without needing Obsidian. Integration tests spawn real processes.
+Tests use vitest with a mock of the Obsidian API. Core logic is unit-tested without Obsidian. Integration tests spawn real processes.

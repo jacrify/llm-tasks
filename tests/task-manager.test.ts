@@ -1,23 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { execSync } from 'node:child_process';
 import { TaskManager, TaskManagerDeps } from '../src/task-manager';
 import { DEFAULT_SETTINGS, LlmTasksSettings } from '../src/settings';
-import { registerAgent } from '../src/agents/registry';
-import { AgentAdapter } from '../src/agents/types';
-
-// Test agent adapter that runs shell commands directly
-const testAdapter: AgentAdapter = {
-    id: 'test',
-    name: 'Test',
-    defaultCommand: '/bin/sh',
-    buildArgs({ task }) {
-        return ['-c', task];
-    },
-    isSuccess: (code) => code === 0,
-};
-
-// Register once
-registerAgent(testAdapter);
 
 function createMockDeps(overrides?: Partial<TaskManagerDeps>): TaskManagerDeps {
     return {
@@ -33,14 +16,13 @@ function createMockDeps(overrides?: Partial<TaskManagerDeps>): TaskManagerDeps {
 }
 
 function createSettings(overrides?: Partial<LlmTasksSettings>): LlmTasksSettings {
-    return { ...DEFAULT_SETTINGS, agentType: 'test', ...overrides };
+    return { ...DEFAULT_SETTINGS, agentCommand: '/bin/sh -c', promptTemplate: '{{task}}', ...overrides };
 }
 
-function killTmuxSession(session: string): void {
-    try { execSync(`tmux kill-session -t '${session}'`, { stdio: 'pipe' }); } catch { /* */ }
+function killProcess(pid: number): void {
+    try { process.kill(pid, 'SIGTERM'); } catch { /* */ }
 }
 
-// Use a counter to ensure unique task text across tests (avoids tmux session name collisions)
 let testCounter = 0;
 function uniqueTask(base: string): string {
     return `${base}_${++testCounter}_${Date.now()}`;
@@ -50,18 +32,18 @@ describe('TaskManager', () => {
     let deps: TaskManagerDeps;
     let settings: LlmTasksSettings;
     let manager: TaskManager;
-    let createdSessions: string[] = [];
+    let createdPids: number[] = [];
 
     beforeEach(() => {
         deps = createMockDeps();
         settings = createSettings();
         manager = new TaskManager(deps, settings);
-        createdSessions = [];
+        createdPids = [];
     });
 
     afterEach(async () => {
-        for (const s of createdSessions) {
-            killTmuxSession(s);
+        for (const pid of createdPids) {
+            killProcess(pid);
         }
         await manager.cleanup();
     });
@@ -100,7 +82,7 @@ describe('TaskManager', () => {
             manager = new TaskManager(deps, settings);
 
             const r = await manager.dispatch(uniqueTask('echo first'), 'note.md', 0, 'content');
-            createdSessions.push(r.tmuxSession);
+            createdPids.push(r.pid);
 
             await expect(manager.dispatch(uniqueTask('echo second'), 'note.md', 1, 'content'))
                 .rejects.toThrow('Max concurrent');
@@ -120,7 +102,7 @@ describe('TaskManager', () => {
 
         it('returns correct count after dispatch', async () => {
             const r = await manager.dispatch(uniqueTask('echo hello'), 'note.md', 0, 'content');
-            createdSessions.push(r.tmuxSession);
+            createdPids.push(r.pid);
             expect(manager.getActiveTaskCount()).toBe(1);
         });
 
@@ -129,7 +111,7 @@ describe('TaskManager', () => {
             manager = new TaskManager(deps, settings);
             const r1 = await manager.dispatch(uniqueTask('echo one'), 'note.md', 0, 'content');
             const r2 = await manager.dispatch(uniqueTask('echo two'), 'note.md', 1, 'content');
-            createdSessions.push(r1.tmuxSession, r2.tmuxSession);
+            createdPids.push(r1.pid, r2.pid);
             expect(manager.getActiveTaskCount()).toBe(2);
         });
     });
@@ -148,13 +130,13 @@ describe('TaskManager', () => {
         it('returns dispatched tasks', async () => {
             const task = uniqueTask('echo hello');
             const r = await manager.dispatch(task, 'note.md', 0, 'content');
-            createdSessions.push(r.tmuxSession);
+            createdPids.push(r.pid);
             const tasks = manager.getActiveTasks();
             expect(tasks).toHaveLength(1);
             expect(tasks[0].taskText).toBe(task);
             expect(tasks[0].sourceFile).toBe('note.md');
-            expect(tasks[0].agentId).toBe('test');
-            expect(tasks[0].tmuxSession).toMatch(/^llm-/);
+            expect(tasks[0].pid).toBeGreaterThan(0);
+            expect(tasks[0].logFile).toContain('llm-tasks');
         });
     });
 
@@ -170,30 +152,30 @@ describe('TaskManager', () => {
         it('returns a valid TaskRecord', async () => {
             const task = uniqueTask('echo hello');
             const record = await manager.dispatch(task, 'note.md', 5, 'some content');
-            createdSessions.push(record.tmuxSession);
+            createdPids.push(record.pid);
             expect(record.taskText).toBe(task);
             expect(record.sourceFile).toBe('note.md');
             expect(record.sourceLine).toBe(5);
-            expect(record.agentId).toBe('test');
-            expect(record.tmuxSession).toMatch(/^llm-/);
+            expect(record.pid).toBeGreaterThan(0);
+            expect(record.logFile).toContain('llm-tasks');
             expect(record.started).toBeTruthy();
         });
 
         it('strips leading "- " from list items', async () => {
             const record = await manager.dispatch('- say hello in the doc', 'note.md', 0, 'content');
-            createdSessions.push(record.tmuxSession);
+            createdPids.push(record.pid);
             expect(record.taskText).toBe('say hello in the doc');
         });
 
         it('calls saveData to persist tasks', async () => {
             const r = await manager.dispatch(uniqueTask('echo hello'), 'note.md', 0, 'content');
-            createdSessions.push(r.tmuxSession);
+            createdPids.push(r.pid);
             expect(deps.saveData).toHaveBeenCalled();
         });
 
         it('calls onTaskCountChanged', async () => {
             const r = await manager.dispatch(uniqueTask('echo hello'), 'note.md', 0, 'content');
-            createdSessions.push(r.tmuxSession);
+            createdPids.push(r.pid);
             expect(deps.onTaskCountChanged).toHaveBeenCalledWith(1);
         });
 
@@ -203,7 +185,7 @@ describe('TaskManager', () => {
             const r1 = await manager.dispatch(uniqueTask('echo 1'), 'note.md', 0, 'c');
             const r2 = await manager.dispatch(uniqueTask('echo 2'), 'note.md', 1, 'c');
             const r3 = await manager.dispatch(uniqueTask('echo 3'), 'note.md', 2, 'c');
-            createdSessions.push(r1.tmuxSession, r2.tmuxSession, r3.tmuxSession);
+            createdPids.push(r1.pid, r2.pid, r3.pid);
             expect(manager.getActiveTaskCount()).toBe(3);
         });
     });
