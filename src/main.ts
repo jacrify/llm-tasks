@@ -16,12 +16,15 @@ class PeekModal extends Modal {
     }
 
     onOpen(): void {
-        const { contentEl } = this;
+        const { contentEl, modalEl } = this;
+        modalEl.style.width = "80vw";
+        modalEl.style.maxWidth = "900px";
         contentEl.createEl("h2", { text: this.title });
         const pre = contentEl.createEl("pre");
         pre.style.whiteSpace = "pre-wrap";
-        pre.style.maxHeight = "400px";
+        pre.style.maxHeight = "70vh";
         pre.style.overflow = "auto";
+        pre.style.fontSize = "13px";
         pre.setText(this.content);
     }
 
