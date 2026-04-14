@@ -34,16 +34,21 @@ export const piAdapter: AgentAdapter = {
             for (const line of lines) {
                 try {
                     const obj = JSON.parse(line);
-                    if (obj.type === 'message' && obj.message?.role === 'assistant' && obj.usage) {
-                        const u = obj.usage;
-                        if (u.cost) totalCost += u.cost.total || 0;
-                        totalInput += u.input || 0;
-                        totalOutput += u.output || 0;
-                        totalCacheRead += u.cacheRead || 0;
-                        totalCacheWrite += u.cacheWrite || 0;
-                        if (obj.model) model = obj.model;
-                        if (obj.provider) provider = obj.provider;
-                    }
+                    if (obj.type !== 'message') continue;
+                    const msg = obj.message;
+                    if (!msg || msg.role !== 'assistant') continue;
+
+                    // Usage can be at root level (interactive) or inside message (-p mode)
+                    const usage = obj.usage || msg.usage;
+                    if (!usage) continue;
+
+                    if (usage.cost) totalCost += usage.cost.total || 0;
+                    totalInput += usage.input || 0;
+                    totalOutput += usage.output || 0;
+                    totalCacheRead += usage.cacheRead || 0;
+                    totalCacheWrite += usage.cacheWrite || 0;
+                    model = obj.model || msg.model || model;
+                    provider = obj.provider || msg.provider || provider;
                 } catch { /* skip unparseable lines */ }
             }
 

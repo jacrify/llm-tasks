@@ -61,9 +61,14 @@ describe('claude-code adapter', () => {
         expect(claudeCodeAdapter.defaultCommand).toBe('claude');
     });
 
-    it('buildArgs returns correct args', () => {
+    it('buildArgs returns correct args with session and json output', () => {
         const result = claudeCodeAdapter.buildArgs(baseParams);
-        expect(result).toEqual(['-p', 'Do the thing']);
+        expect(result[0]).toBe('-p');
+        expect(result[1]).toBe('--output-format');
+        expect(result[2]).toBe('json');
+        expect(result[3]).toBe('--session-id');
+        expect(typeof result[4]).toBe('string'); // UUID
+        expect(result[result.length - 1]).toBe('Do the thing');
     });
 
     it('buildArgs includes extra args when set', () => {
@@ -71,7 +76,9 @@ describe('claude-code adapter', () => {
             ...baseParams,
             extraArgs: ['--model', 'opus'],
         });
-        expect(result).toEqual(['-p', '--model', 'opus', 'Do the thing']);
+        expect(result).toContain('--model');
+        expect(result).toContain('opus');
+        expect(result[result.length - 1]).toBe('Do the thing');
     });
 });
 
