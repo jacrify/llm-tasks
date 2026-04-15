@@ -47,3 +47,15 @@ input[data-task="❌"]:checked {
 .llm-tasks-wide-setting textarea {
     width: 100% !important;
 }
+
+/* Settings: monospace text inputs (agent command, session/resume templates) */
+.llm-tasks-monospace-input {
+    width: 300px;
+    font-family: var(--font-monospace);
+}
+
+/* Settings: monospace textarea (prompt template) */
+.llm-tasks-monospace-textarea {
+    font-family: var(--font-monospace);
+    font-size: var(--font-smaller);
+}

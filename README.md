@@ -6,6 +6,8 @@ No streaming UI, no chat panels, no embedded AI. Just a line of text → a backg
 
 ![LLM Tasks Demo](demo.gif)
 
+> **Platform: macOS and Linux only (desktop).** This plugin requires a Unix shell and command-line AI agents (such as [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) or [Pi](https://github.com/mariozechner/pi-coding-agent)) to be installed on your machine. Windows and mobile (iOS/Android) are not supported.
+
 ## How It Works
 
 Write a task on any line in a note:

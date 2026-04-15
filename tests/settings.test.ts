@@ -13,7 +13,7 @@ describe("DEFAULT_SETTINGS", () => {
         expect(DEFAULT_SETTINGS.pendingMarker).toBe("⏳");
         expect(DEFAULT_SETTINGS.doneMarker).toBe("✅");
         expect(DEFAULT_SETTINGS.failedMarker).toBe("❌");
-        expect(DEFAULT_SETTINGS.shellPath).toBe("/bin/zsh");
+        expect(DEFAULT_SETTINGS.shellPath).toBe("");
         expect(DEFAULT_SETTINGS.extraPath).toBe("/opt/homebrew/bin:/usr/local/bin");
     });
 

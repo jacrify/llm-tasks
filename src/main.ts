@@ -1,4 +1,4 @@
-import { Plugin, Notice } from "obsidian";
+import { Plugin, Notice, Editor, MarkdownView, MarkdownFileInfo, FileSystemAdapter } from "obsidian";
 import { TaskManager, TaskManagerDeps } from "./task-manager";
 import { LlmTasksSettings, DEFAULT_SETTINGS, mergeSettings, LlmTasksSettingTab } from "./settings";
 import { formatTaskLine, formatContinuationLine, parseTaskLine, isIndentedLine, getIndent, findParentTaskLine, updateTaskMarker } from "./note-writer";
@@ -29,7 +29,7 @@ export default class LlmTasksPlugin extends Plugin {
     onunload() {
         if (this.taskManager) {
             this.taskManager.stopPolling();
-            this.taskManager.cleanup();
+            void this.taskManager.cleanup();
         }
     }
 
@@ -58,12 +58,12 @@ export default class LlmTasksPlugin extends Plugin {
                 }
             },
             getVaultPath: (): string => {
-                return (this.app.vault.adapter as any).getBasePath?.() || "";
+                return (this.app.vault.adapter as FileSystemAdapter).getBasePath() || "";
             },
-            loadData: async (): Promise<any> => {
+            loadData: async (): Promise<Record<string, unknown>> => {
                 return await this.loadData();
             },
-            saveData: async (data: any): Promise<void> => {
+            saveData: async (data: Record<string, unknown>): Promise<void> => {
                 const existing = await this.loadData() || {};
                 await this.saveData({ ...existing, ...data });
             },
@@ -87,7 +87,7 @@ export default class LlmTasksPlugin extends Plugin {
         this.addCommand({
             id: "dispatch",
             name: "Dispatch task",
-            editorCallback: async (editor: any, view: any) => {
+            editorCallback: async (editor: Editor, view: MarkdownView | MarkdownFileInfo) => {
                 const cursor = editor.getCursor();
                 const line = cursor.line;
                 const lineText = editor.getLine(line);
@@ -133,8 +133,8 @@ export default class LlmTasksPlugin extends Plugin {
                         );
                         editor.setLine(line, taskLine);
                     }
-                } catch (e: any) {
-                    new Notice(e.message);
+                } catch (e: unknown) {
+                    new Notice(e instanceof Error ? e.message : String(e));
                 }
             },
         });
@@ -143,7 +143,7 @@ export default class LlmTasksPlugin extends Plugin {
         this.addCommand({
             id: "cancel",
             name: "Cancel task",
-            editorCallback: async (editor: any) => {
+            editorCallback: async (editor: Editor) => {
                 const cursor = editor.getCursor();
                 const lineText = editor.getLine(cursor.line);
                 const parsed = parseTaskLine(lineText);
@@ -159,8 +159,8 @@ export default class LlmTasksPlugin extends Plugin {
                 try {
                     await this.taskManager!.cancel(task.id);
                     new Notice("Task cancelled.");
-                } catch (e: any) {
-                    new Notice(`Cancel failed: ${e.message}`);
+                } catch (e: unknown) {
+                    new Notice(`Cancel failed: ${e instanceof Error ? e.message : String(e)}`);
                 }
             },
         });

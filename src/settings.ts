@@ -1,5 +1,10 @@
-import { PluginSettingTab, App, Setting } from "obsidian";
+import { PluginSettingTab, App, Setting, Plugin } from "obsidian";
 import { DEFAULT_PROMPT_TEMPLATE } from "./prompt";
+
+interface LlmTasksPluginRef {
+    settings: LlmTasksSettings;
+    saveSettings(): Promise<void>;
+}
 
 export interface LlmTasksSettings {
     pollInterval: number;
@@ -31,7 +36,7 @@ export const DEFAULT_SETTINGS: LlmTasksSettings = {
     pendingMarker: "⏳",
     doneMarker: "✅",
     failedMarker: "❌",
-    shellPath: "/bin/zsh",
+    shellPath: "",
     extraPath: "/opt/homebrew/bin:/usr/local/bin",
     sessionTemplate: "--session-id {sessionId}",
     resumeTemplate: "--resume {sessionId}",
@@ -60,17 +65,18 @@ export function mergeSettings(loaded: Partial<LlmTasksSettings>): LlmTasksSettin
     const validKeys = new Set(Object.keys(DEFAULT_SETTINGS));
     for (const [k, v] of Object.entries(loaded)) {
         if (v !== undefined && validKeys.has(k)) {
-            (clean as any)[k] = v;
+            (clean as Record<string, unknown>)[k] = v;
         }
     }
 
     // Migrate old separate agentCommand + extraArgs into single command
-    const old = loaded as any;
-    if (old.extraArgs && clean.agentCommand && !clean.agentCommand.includes(old.extraArgs)) {
-        const base = clean.agentCommand || old.agentCommand || '';
+    const old = loaded as Record<string, unknown>;
+    const oldExtraArgs = typeof old.extraArgs === 'string' ? old.extraArgs : '';
+    if (oldExtraArgs && clean.agentCommand && !clean.agentCommand.includes(oldExtraArgs)) {
+        const base = clean.agentCommand || (typeof old.agentCommand === 'string' ? old.agentCommand : '') || '';
         // Only migrate if agentCommand looks like old format (no -p flag)
         if (base && !base.includes(' -p')) {
-            clean.agentCommand = `${base} -p ${old.extraArgs}`.trim();
+            clean.agentCommand = `${base} -p ${oldExtraArgs}`.trim();
         }
     }
 
@@ -83,9 +89,9 @@ export function mergeSettings(loaded: Partial<LlmTasksSettings>): LlmTasksSettin
 }
 
 export class LlmTasksSettingTab extends PluginSettingTab {
-    plugin: any;
+    plugin: LlmTasksPluginRef;
 
-    constructor(app: App, plugin: any) {
+    constructor(app: App, plugin: Plugin & LlmTasksPluginRef) {
         super(app, plugin);
         this.plugin = plugin;
     }
@@ -94,10 +100,10 @@ export class LlmTasksSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
-        containerEl.createEl("h2", { text: "LLM Tasks Settings" });
+        new Setting(containerEl).setName('LLM tasks settings').setHeading();
 
         // --- Agent ---
-        containerEl.createEl("h3", { text: "Agent" });
+        new Setting(containerEl).setName('Agent').setHeading();
 
         new Setting(containerEl)
             .setName("Agent preset")
@@ -125,8 +131,7 @@ export class LlmTasksSettingTab extends PluginSettingTab {
             .setName("Agent command")
             .setDesc("Command prefix for the agent. The rendered prompt is appended as the final argument.")
             .addText((text) => {
-                text.inputEl.style.width = '300px';
-                text.inputEl.style.fontFamily = 'monospace';
+                text.inputEl.addClass('llm-tasks-monospace-input');
                 text
                     .setPlaceholder(DEFAULT_SETTINGS.agentCommand)
                     .setValue(this.plugin.settings.agentCommand)
@@ -140,8 +145,7 @@ export class LlmTasksSettingTab extends PluginSettingTab {
             .setName("Session template")
             .setDesc("Args to set session identity. Use {sessionId} placeholder. E.g. --session-id {sessionId} for claude. Leave empty for pi (uses default session dir).")
             .addText((text) => {
-                text.inputEl.style.width = '300px';
-                text.inputEl.style.fontFamily = 'monospace';
+                text.inputEl.addClass('llm-tasks-monospace-input');
                 text
                     .setPlaceholder("--session-id {sessionId}")
                     .setValue(this.plugin.settings.sessionTemplate)
@@ -155,8 +159,7 @@ export class LlmTasksSettingTab extends PluginSettingTab {
             .setName("Resume template")
             .setDesc("Args to resume a session. Use {sessionId} placeholder. E.g. --resume {sessionId} for claude, --session {sessionId} for pi.")
             .addText((text) => {
-                text.inputEl.style.width = '300px';
-                text.inputEl.style.fontFamily = 'monospace';
+                text.inputEl.addClass('llm-tasks-monospace-input');
                 text
                     .setPlaceholder("--resume {sessionId}")
                     .setValue(this.plugin.settings.resumeTemplate)
@@ -167,7 +170,7 @@ export class LlmTasksSettingTab extends PluginSettingTab {
             });
 
         // --- Prompt ---
-        containerEl.createEl("h3", { text: "Prompt" });
+        new Setting(containerEl).setName('Prompt').setHeading();
 
         const promptSetting = new Setting(containerEl)
             .setName("Prompt template")
@@ -175,8 +178,7 @@ export class LlmTasksSettingTab extends PluginSettingTab {
             .addTextArea((text) => {
                 text.inputEl.rows = 12;
                 text.inputEl.cols = 60;
-                text.inputEl.style.fontFamily = 'monospace';
-                text.inputEl.style.fontSize = '12px';
+                text.inputEl.addClass('llm-tasks-monospace-textarea');
                 text
                     .setPlaceholder("(default prompt)")
                     .setValue(this.plugin.settings.promptTemplate || DEFAULT_PROMPT_TEMPLATE)
@@ -216,14 +218,14 @@ export class LlmTasksSettingTab extends PluginSettingTab {
             );
 
         // --- Shell ---
-        containerEl.createEl("h3", { text: "Shell" });
+        new Setting(containerEl).setName('Shell').setHeading();
 
         new Setting(containerEl)
             .setName("Shell path")
-            .setDesc("Shell used to run agent commands. Must support -c flag.")
+            .setDesc("Shell used to run agent commands. Defaults to $SHELL or /bin/sh if empty.")
             .addText((text) =>
                 text
-                    .setPlaceholder(DEFAULT_SETTINGS.shellPath)
+                    .setPlaceholder("$SHELL or /bin/sh")
                     .setValue(this.plugin.settings.shellPath)
                     .onChange(async (value: string) => {
                         this.plugin.settings.shellPath = value;
@@ -245,7 +247,7 @@ export class LlmTasksSettingTab extends PluginSettingTab {
             );
 
         // --- General ---
-        containerEl.createEl("h3", { text: "General" });
+        new Setting(containerEl).setName('General').setHeading();
 
         new Setting(containerEl)
             .setName("Poll interval")

@@ -15,6 +15,7 @@ export const DEFAULT_PROMPT_TEMPLATE = `You are an AI assistant working inside a
 - Do NOT modify any lines matching \`- ⏳\`, \`- ✅\`, \`- ❌\`, or \`<!-- llm:\` in the source note. Task status is managed by the llm-tasks plugin.
 - Work within the vault directory unless the task says otherwise.
 - Be concise.
+- The user CANNOT see your stdout/stderr output. If you need to communicate something back to the user (results, answers, status, errors), write it as indented lines directly beneath the task line in the source note. For example, if the task is on a line like \`- ⏳ do something <!-- llm:abc -->\`, append your response as indented lines below it. Do NOT do this if the task explicitly asks for output elsewhere (e.g. "write to file X").
 
 ## Task
 

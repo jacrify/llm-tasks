@@ -5,15 +5,15 @@ import * as crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { TaskRecord } from './agents/types';
 import { renderPrompt } from './prompt';
-import { generateTaskId, updateTaskMarker, updateTaskSession, findResumeSession, findParentTaskLine, isIndentedLine, getIndent, parseTaskLine } from './note-writer';
+import { generateTaskId, updateTaskMarker, updateTaskSession, findResumeSession, findParentTaskLine, isIndentedLine, parseTaskLine } from './note-writer';
 import { LlmTasksSettings } from './settings';
 
 export interface TaskManagerDeps {
     readFile(path: string): Promise<string | null>;
     writeFile(path: string, content: string): Promise<void>;
     getVaultPath(): string;
-    loadData(): Promise<any>;
-    saveData(data: any): Promise<void>;
+    loadData(): Promise<Record<string, unknown>>;
+    saveData(data: Record<string, unknown>): Promise<void>;
     notify(message: string): void;
     onTaskCountChanged(count: number): void;
 }
@@ -146,7 +146,7 @@ export class TaskManager {
         const logFile = path.join(logDir, `${id}.log`);
         const logFd = fs.openSync(logFile, 'w');
 
-        const shellPath = this.settings.shellPath || '/bin/zsh';
+        const shellPath = this.settings.shellPath || process.env.SHELL || '/bin/sh';
 
         try {
             const child = spawn(shellPath, ['-l', '-i', '-c', agentCmd], {
@@ -189,16 +189,16 @@ export class TaskManager {
             this.deps.onTaskCountChanged(this.activeTasks.size);
 
             return record;
-        } catch (err: any) {
+        } catch (err: unknown) {
             try { fs.closeSync(logFd); } catch { /* already closed */ }
-            throw new Error(`Failed to spawn agent process: ${err.message}`);
+            throw new Error(`Failed to spawn agent process: ${err instanceof Error ? err.message : String(err)}`);
         }
     }
 
     startPolling(): void {
         if (this.pollTimer) return;
         const intervalMs = (this.settings.pollInterval || 5) * 1000;
-        this.pollTimer = setInterval(() => this.poll(), intervalMs);
+        this.pollTimer = setInterval(() => { void this.poll(); }, intervalMs);
     }
 
     stopPolling(): void {
@@ -211,7 +211,7 @@ export class TaskManager {
     /** Start polling with a custom interval in ms (for testing) */
     startPollingMs(intervalMs: number): void {
         if (this.pollTimer) return;
-        this.pollTimer = setInterval(() => this.poll(), intervalMs);
+        this.pollTimer = setInterval(() => { void this.poll(); }, intervalMs);
     }
 
     private async poll(): Promise<void> {
@@ -372,7 +372,7 @@ export class TaskManager {
 
     async cleanup(): Promise<void> {
         this.stopPolling();
-        for (const [_id, record] of this.activeTasks) {
+        for (const [, record] of this.activeTasks) {
             try {
                 process.kill(record.pid, 'SIGTERM');
             } catch {
@@ -491,6 +491,6 @@ export class TaskManager {
         const data: PersistedData = {
             activeTasks: Array.from(this.activeTasks.values()),
         };
-        await this.deps.saveData(data);
+        await this.deps.saveData(data as unknown as Record<string, unknown>);
     }
 }
