@@ -100,14 +100,12 @@ export class LlmTasksSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
-        new Setting(containerEl).setName('LLM tasks settings').setHeading();
-
         // --- Agent ---
         new Setting(containerEl).setName('Agent').setHeading();
 
         new Setting(containerEl)
             .setName("Agent preset")
-            .setDesc("Select an agent to fill in defaults, or choose Custom to configure manually.")
+            .setDesc("Select an agent to fill in defaults, or choose 'Custom' to configure manually.")
             .addDropdown((dropdown) => {
                 dropdown
                     .addOption('claude', 'Claude Code')
@@ -222,10 +220,10 @@ export class LlmTasksSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName("Shell path")
-            .setDesc("Shell used to run agent commands. Defaults to $SHELL or /bin/sh if empty.")
+            .setDesc("Shell used to run agent commands. Defaults to the SHELL environment variable, or /bin/sh if empty.")
             .addText((text) =>
                 text
-                    .setPlaceholder("$SHELL or /bin/sh")
+                    .setPlaceholder("e.g. /bin/zsh")
                     .setValue(this.plugin.settings.shellPath)
                     .onChange(async (value: string) => {
                         this.plugin.settings.shellPath = value;
@@ -234,8 +232,8 @@ export class LlmTasksSettingTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
-            .setName("Extra PATH entries")
-            .setDesc("Colon-separated paths prepended to PATH when running agents. Needed because Obsidian GUI apps have a minimal PATH.")
+            .setName("Extra path entries")
+            .setDesc("Colon-separated paths prepended to the environment path when running agents. GUI apps typically have a minimal path.")
             .addText((text) =>
                 text
                     .setPlaceholder(DEFAULT_SETTINGS.extraPath)
@@ -246,8 +244,8 @@ export class LlmTasksSettingTab extends PluginSettingTab {
                     })
             );
 
-        // --- General ---
-        new Setting(containerEl).setName('General').setHeading();
+        // --- Behavior ---
+        new Setting(containerEl).setName('Behavior').setHeading();
 
         new Setting(containerEl)
             .setName("Poll interval")
